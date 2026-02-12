@@ -13,7 +13,7 @@ import (
 var display_chan = make(chan string, 5)
 
 func main() {
-	server := "http://localhost:8080"  //вот тут большой шаурма (ссылку на развернутый сервер на гит хабе)
+	server := "http://localhost:8080"  //вот тут большой шаурма (ссылку на развернутый сервер на гит хабе - spacecode )
 	go func() {
 		for text_to_print := range display_chan {
 			fmt.Println(text_to_print)
@@ -53,3 +53,4 @@ func main() {
 	}
 
 }
+
