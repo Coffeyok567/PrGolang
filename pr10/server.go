@@ -8,102 +8,167 @@ import (
 	"sync"
 )
 
-// Действия игрока за раунд
-type PlayerAction struct {
+// Информация об игроке
+type Player struct {
+	Name    string
 	Attack  string
 	Defense string
+	HP      int
 }
 
 var (
-	// Храним действия игроков
-	players = make(map[string]PlayerAction)
+	players = make(map[string]*Player) // name -> player
+	phase   = "attack"                  // attack или defense
+	result  string
 
-	// HP игроков
-	hp = map[string]int{
-		"player1": 100,
-		"player2": 100,
-	}
-
-	mutex       sync.Mutex
-	roundResult string
+	mutex sync.Mutex
 )
 
 func main() {
 
-	// Один HTTP-обработчик
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 
-		// ===== ПОЛУЧЕНИЕ ХОДА ОТ КЛИЕНТА =====
+		mutex.Lock()
+		defer mutex.Unlock()
+
+		// ===== РЕГИСТРАЦИЯ ИГРОКА =====
 		if r.Method == http.MethodPost {
 
-			// Формат сообщения:
-			// player1;attack=head;defense=body
 			body, _ := io.ReadAll(r.Body)
-			data := strings.Split(string(body), ";")
+			data := string(body)
 
-			player := data[0]
-			attack := strings.Split(data[1], "=")[1]
-			defense := strings.Split(data[2], "=")[1]
+			// register=Имя
+			if strings.HasPrefix(data, "register=") {
 
-			mutex.Lock()
+				name := strings.Split(data, "=")[1]
 
-			// Сохраняем ход игрока
-			players[player] = PlayerAction{attack, defense}
-
-			// Если оба игрока сделали ход
-			if len(players) == 2 {
-
-				p1 := players["player1"]
-				p2 := players["player2"]
-
-				result := "=== РЕЗУЛЬТАТ РАУНДА ===\n"
-
-				// Атака Player1
-				if p1.Attack != p2.Defense {
-					hp["player2"] -= 20
-					result += "Player1 попал по Player2\n"
-				} else {
-					result += "Player2 защитился от Player1\n"
+				if len(players) >= 2 {
+					fmt.Fprint(w, "Сервер заполнен (2 игрока)")
+					return
 				}
 
-				// Атака Player2
-				if p2.Attack != p1.Defense {
-					hp["player1"] -= 20
-					result += "Player2 попал по Player1\n"
-				} else {
-					result += "Player1 защитился от Player2\n"
+				players[name] = &Player{
+					Name: name,
+					HP:   100,
 				}
 
-				// Текущее HP
-				result += fmt.Sprintf(
-					"\nHP:\nPlayer1 = %d\nPlayer2 = %d\n",
-					hp["player1"], hp["player2"],
-				)
-
-				// Проверка победителя
-				if hp["player1"] <= 0 {
-					result += "\nПОБЕДИЛ Player2\n"
-				} else if hp["player2"] <= 0 {
-					result += "\nПОБЕДИЛ Player1\n"
-				}
-
-				roundResult = result
-
-				// Очищаем ходы для нового раунда
-				players = make(map[string]PlayerAction)
+				fmt.Fprint(w, "Вы зарегистрированы как "+name)
+				return
 			}
 
-			mutex.Unlock()
-			fmt.Fprint(w, "Ход принят")
+			// attack=Имя:head
+			if strings.HasPrefix(data, "attack=") && phase == "attack" {
+
+				parts := strings.Split(strings.Split(data, "=")[1], ":")
+				name := parts[0]
+				attack := parts[1]
+
+				players[name].Attack = attack
+
+				if allAttacksDone() {
+					phase = "defense"
+					result = "Все выбрали атаку. Теперь защита.\n"
+				}
+
+				fmt.Fprint(w, "Атака принята")
+				return
+			}
+
+			// defense=Имя:body
+			if strings.HasPrefix(data, "defense=") && phase == "defense" {
+
+				parts := strings.Split(strings.Split(data, "=")[1], ":")
+				name := parts[0]
+				defense := parts[1]
+
+				players[name].Defense = defense
+
+				if allDefensesDone() {
+					calcRound()
+					phase = "attack"
+					clearActions()
+				}
+
+				fmt.Fprint(w, "Защита принята")
+				return
+			}
 
 		} else {
-			// ===== ОТПРАВКА РЕЗУЛЬТАТА КЛИЕНТУ =====
-			mutex.Lock()
-			fmt.Fprint(w, roundResult)
-			mutex.Unlock()
+			// ===== ОТПРАВКА СОСТОЯНИЯ =====
+			fmt.Fprint(w, result)
 		}
 	})
 
-	fmt.Println("PvP сервер запущен на :8080")
+	fmt.Println("HTTP PvP сервер запущен на :8080")
 	http.ListenAndServe(":8080", nil)
+}
+
+// Проверка — все ли выбрали атаку
+func allAttacksDone() bool {
+	for _, p := range players {
+		if p.Attack == "" {
+			return false
+		}
+	}
+	return len(players) == 2
+}
+
+// Проверка — все ли выбрали защиту
+func allDefensesDone() bool {
+	for _, p := range players {
+		if p.Defense == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// Расчёт раунда
+func calcRound() {
+
+	var p1, p2 *Player
+	for _, p := range players {
+		if p1 == nil {
+			p1 = p
+		} else {
+			p2 = p
+		}
+	}
+
+	result = "=== РЕЗУЛЬТАТ РАУНДА ===\n"
+
+	if p1.Attack != p2.Defense {
+		p2.HP -= 20
+		result += p1.Name + " попал по " + p2.Name + "\n"
+	} else {
+		result += p2.Name + " защитился от " + p1.Name + "\n"
+	}
+
+	if p2.Attack != p1.Defense {
+		p1.HP -= 20
+		result += p2.Name + " попал по " + p1.Name + "\n"
+	} else {
+		result += p1.Name + " защитился от " + p2.Name + "\n"
+	}
+
+	result += fmt.Sprintf(
+		"\nHP:\n%s = %d\n%s = %d\n",
+		p1.Name, p1.HP,
+		p2.Name, p2.HP,
+	)
+
+	if p1.HP <= 0 {
+		result += "\nПОБЕДИЛ " + p2.Name + "\n"
+	}
+	if p2.HP <= 0 {
+		result += "\nПОБЕДИЛ " + p1.Name + "\n"
+	}
+}
+
+// Очистка действий для нового раунда
+func clearActions() {
+	for _, p := range players {
+		p.Attack = ""
+		p.Defense = ""
+	}
 }
