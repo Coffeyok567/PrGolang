@@ -15,36 +15,42 @@ func main() {
 	server := "http://localhost:8080"
 	scanner := bufio.NewScanner(os.Stdin)
 
-	// Выбор игрока
-	fmt.Print("Введите игрока (player1 / player2): ")
+	// Ввод имени
+	fmt.Print("Введите имя игрока: ")
 	scanner.Scan()
-	player := scanner.Text()
+	name := scanner.Text()
+
+	// Регистрация
+	http.Post(server, "text/plain",
+		strings.NewReader("register="+name))
 
 	for {
 
-		// Выбор атаки
-		fmt.Print("Атаковать (head/body/legs): ")
+		// ===== АТАКА =====
+		fmt.Print("Выберите атаку (head/body/legs): ")
 		scanner.Scan()
 		attack := scanner.Text()
 
-		// Выбор защиты
-		fmt.Print("Защищать (head/body/legs): ")
+		http.Post(server, "text/plain",
+			strings.NewReader("attack="+name+":"+attack))
+
+		time.Sleep(2 * time.Second)
+
+		// ===== ЗАЩИТА =====
+		fmt.Print("Выберите защиту (head/body/legs): ")
 		scanner.Scan()
 		defense := scanner.Text()
 
-		// Отправка хода на сервер
-		data := player + ";attack=" + attack + ";defense=" + defense
-		http.Post(server, "text/plain", strings.NewReader(data))
+		http.Post(server, "text/plain",
+			strings.NewReader("defense="+name+":"+defense))
 
-		// Небольшая пауза, ждём второго игрока
 		time.Sleep(2 * time.Second)
 
-		// Получаем результат раунда
+		// ===== РЕЗУЛЬТАТ =====
 		resp, _ := http.Get(server)
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
-		// Если есть результат — выводим
 		if string(body) != "" {
 			fmt.Println("\n" + string(body))
 		}
