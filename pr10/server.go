@@ -8,7 +8,6 @@ import (
 	"sync"
 )
 
-// Информация об игроке
 type Player struct {
 	Name    string
 	Attack  string
@@ -17,12 +16,18 @@ type Player struct {
 }
 
 var (
-	players = make(map[string]*Player) // name -> player
-	phase   = "attack"                  // attack или defense
+	players = make(map[string]*Player)
+	phase   = "WAIT" // WAIT, ATTACK, DEFENSE, RESULT
 	result  string
-
-	mutex sync.Mutex
+	mutex   sync.Mutex
 )
+
+// Урон по частям тела
+var damageByPart = map[string]int{
+	"head": 30,
+	"body": 20,
+	"legs": 10,
+}
 
 func main() {
 
@@ -31,19 +36,17 @@ func main() {
 		mutex.Lock()
 		defer mutex.Unlock()
 
-		// ===== РЕГИСТРАЦИЯ ИГРОКА =====
 		if r.Method == http.MethodPost {
 
 			body, _ := io.ReadAll(r.Body)
-			data := string(body)
+			msg := string(body)
 
-			// register=Имя
-			if strings.HasPrefix(data, "register=") {
-
-				name := strings.Split(data, "=")[1]
+			// ===== РЕГИСТРАЦИЯ =====
+			if strings.HasPrefix(msg, "register=") {
+				name := strings.Split(msg, "=")[1]
 
 				if len(players) >= 2 {
-					fmt.Fprint(w, "Сервер заполнен (2 игрока)")
+					fmt.Fprint(w, "SERVER_FULL")
 					return
 				}
 
@@ -52,69 +55,82 @@ func main() {
 					HP:   100,
 				}
 
-				fmt.Fprint(w, "Вы зарегистрированы как "+name)
-				return
-			}
-
-			// attack=Имя:head
-			if strings.HasPrefix(data, "attack=") && phase == "attack" {
-
-				parts := strings.Split(strings.Split(data, "=")[1], ":")
-				name := parts[0]
-				attack := parts[1]
-
-				players[name].Attack = attack
-
-				if allAttacksDone() {
-					phase = "defense"
-					result = "Все выбрали атаку. Теперь защита.\n"
+				if len(players) == 2 {
+					phase = "ATTACK"
 				}
 
-				fmt.Fprint(w, "Атака принята")
+				fmt.Fprint(w, "REGISTERED")
 				return
 			}
 
-			// defense=Имя:body
-			if strings.HasPrefix(data, "defense=") && phase == "defense" {
-
-				parts := strings.Split(strings.Split(data, "=")[1], ":")
-				name := parts[0]
-				defense := parts[1]
-
-				players[name].Defense = defense
-
-				if allDefensesDone() {
-					calcRound()
-					phase = "attack"
-					clearActions()
+			// ===== АТАКА =====
+			if strings.HasPrefix(msg, "attack=") {
+				if phase != "ATTACK" {
+					fmt.Fprint(w, "WAIT")
+					return
 				}
 
-				fmt.Fprint(w, "Защита принята")
+				parts := strings.Split(strings.Split(msg, "=")[1], ":")
+				players[parts[0]].Attack = parts[1]
+
+				if allAttacks() {
+					phase = "DEFENSE"
+				}
+
+				fmt.Fprint(w, "OK")
 				return
 			}
 
-		} else {
-			// ===== ОТПРАВКА СОСТОЯНИЯ =====
+			// ===== ЗАЩИТА =====
+			if strings.HasPrefix(msg, "defense=") {
+				if phase != "DEFENSE" {
+					fmt.Fprint(w, "WAIT")
+					return
+				}
+
+				parts := strings.Split(strings.Split(msg, "=")[1], ":")
+				players[parts[0]].Defense = parts[1]
+
+				if allDefenses() {
+					calcResult()
+					phase = "RESULT"
+				}
+
+				fmt.Fprint(w, "OK")
+				return
+			}
+		}
+
+		// ===== GET: СОСТОЯНИЕ =====
+		if phase == "WAIT" {
+			fmt.Fprint(w, "WAIT")
+		} else if phase == "ATTACK" {
+			fmt.Fprint(w, "ATTACK")
+		} else if phase == "DEFENSE" {
+			fmt.Fprint(w, "DEFENSE")
+		} else if phase == "RESULT" {
 			fmt.Fprint(w, result)
+			resetRound()
 		}
 	})
 
-	fmt.Println("HTTP PvP сервер запущен на :8080")
+	fmt.Println("Сервер запущен :8080")
 	http.ListenAndServe(":8080", nil)
 }
 
-// Проверка — все ли выбрали атаку
-func allAttacksDone() bool {
+func allAttacks() bool {
+	if len(players) < 2 {
+		return false
+	}
 	for _, p := range players {
 		if p.Attack == "" {
 			return false
 		}
 	}
-	return len(players) == 2
+	return true
 }
 
-// Проверка — все ли выбрали защиту
-func allDefensesDone() bool {
+func allDefenses() bool {
 	for _, p := range players {
 		if p.Defense == "" {
 			return false
@@ -123,8 +139,8 @@ func allDefensesDone() bool {
 	return true
 }
 
-// Расчёт раунда
-func calcRound() {
+// ===== РАСЧЁТ УРОНА =====
+func calcResult() {
 
 	var p1, p2 *Player
 	for _, p := range players {
@@ -137,18 +153,34 @@ func calcRound() {
 
 	result = "=== РЕЗУЛЬТАТ РАУНДА ===\n"
 
+	// Атака p1
 	if p1.Attack != p2.Defense {
-		p2.HP -= 20
-		result += p1.Name + " попал по " + p2.Name + "\n"
+		dmg := damageByPart[p1.Attack]
+		p2.HP -= dmg
+		result += fmt.Sprintf(
+			"%s ударил %s в %s (-%d HP)\n",
+			p1.Name, p2.Name, p1.Attack, dmg,
+		)
 	} else {
-		result += p2.Name + " защитился от " + p1.Name + "\n"
+		result += fmt.Sprintf(
+			"%s защитился от удара %s\n",
+			p2.Name, p1.Name,
+		)
 	}
 
+	// Атака p2
 	if p2.Attack != p1.Defense {
-		p1.HP -= 20
-		result += p2.Name + " попал по " + p1.Name + "\n"
+		dmg := damageByPart[p2.Attack]
+		p1.HP -= dmg
+		result += fmt.Sprintf(
+			"%s ударил %s в %s (-%d HP)\n",
+			p2.Name, p1.Name, p2.Attack, dmg,
+		)
 	} else {
-		result += p1.Name + " защитился от " + p2.Name + "\n"
+		result += fmt.Sprintf(
+			"%s защитился от удара %s\n",
+			p1.Name, p2.Name,
+		)
 	}
 
 	result += fmt.Sprintf(
@@ -156,19 +188,12 @@ func calcRound() {
 		p1.Name, p1.HP,
 		p2.Name, p2.HP,
 	)
-
-	if p1.HP <= 0 {
-		result += "\nПОБЕДИЛ " + p2.Name + "\n"
-	}
-	if p2.HP <= 0 {
-		result += "\nПОБЕДИЛ " + p1.Name + "\n"
-	}
 }
 
-// Очистка действий для нового раунда
-func clearActions() {
+func resetRound() {
 	for _, p := range players {
 		p.Attack = ""
 		p.Defense = ""
 	}
+	phase = "ATTACK"
 }
