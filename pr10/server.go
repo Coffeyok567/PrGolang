@@ -17,7 +17,7 @@ type Player struct {
 
 var (
 	players = make(map[string]*Player)
-	phase   = "WAIT" // WAIT, ATTACK, DEFENSE, RESULT
+	phase   = "WAIT" // WAIT, ATTACK, DEFENSE, RESULT, GAME_OVER
 	result  string
 	mutex   sync.Mutex
 )
@@ -36,12 +36,13 @@ func main() {
 		mutex.Lock()
 		defer mutex.Unlock()
 
+		// ===== POST =====
 		if r.Method == http.MethodPost {
 
 			body, _ := io.ReadAll(r.Body)
 			msg := string(body)
 
-			// ===== РЕГИСТРАЦИЯ =====
+			// --- Регистрация ---
 			if strings.HasPrefix(msg, "register=") {
 				name := strings.Split(msg, "=")[1]
 
@@ -50,10 +51,7 @@ func main() {
 					return
 				}
 
-				players[name] = &Player{
-					Name: name,
-					HP:   100,
-				}
+				players[name] = &Player{Name: name, HP: 100}
 
 				if len(players) == 2 {
 					phase = "ATTACK"
@@ -63,13 +61,14 @@ func main() {
 				return
 			}
 
-			// ===== АТАКА =====
-			if strings.HasPrefix(msg, "attack=") {
-				if phase != "ATTACK" {
-					fmt.Fprint(w, "WAIT")
-					return
-				}
+			// --- Если игра окончена — запрет любых действий ---
+			if phase == "GAME_OVER" {
+				fmt.Fprint(w, "GAME_OVER")
+				return
+			}
 
+			// --- Атака ---
+			if strings.HasPrefix(msg, "attack=") && phase == "ATTACK" {
 				parts := strings.Split(strings.Split(msg, "=")[1], ":")
 				players[parts[0]].Attack = parts[1]
 
@@ -81,19 +80,13 @@ func main() {
 				return
 			}
 
-			// ===== ЗАЩИТА =====
-			if strings.HasPrefix(msg, "defense=") {
-				if phase != "DEFENSE" {
-					fmt.Fprint(w, "WAIT")
-					return
-				}
-
+			// --- Защита ---
+			if strings.HasPrefix(msg, "defense=") && phase == "DEFENSE" {
 				parts := strings.Split(strings.Split(msg, "=")[1], ":")
 				players[parts[0]].Defense = parts[1]
 
 				if allDefenses() {
 					calcResult()
-					phase = "RESULT"
 				}
 
 				fmt.Fprint(w, "OK")
@@ -101,22 +94,15 @@ func main() {
 			}
 		}
 
-		// ===== GET: СОСТОЯНИЕ =====
-		if phase == "WAIT" {
-			fmt.Fprint(w, "WAIT")
-		} else if phase == "ATTACK" {
-			fmt.Fprint(w, "ATTACK")
-		} else if phase == "DEFENSE" {
-			fmt.Fprint(w, "DEFENSE")
-		} else if phase == "RESULT" {
-			fmt.Fprint(w, result)
-			resetRound()
-		}
+		// ===== GET =====
+		fmt.Fprint(w, buildStatus())
 	})
 
 	fmt.Println("Сервер запущен :8080")
 	http.ListenAndServe(":8080", nil)
 }
+
+// ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 func allAttacks() bool {
 	if len(players) < 2 {
@@ -139,7 +125,7 @@ func allDefenses() bool {
 	return true
 }
 
-// ===== РАСЧЁТ УРОНА =====
+// ===== РАСЧЁТ РАУНДА =====
 func calcResult() {
 
 	var p1, p2 *Player
@@ -153,47 +139,68 @@ func calcResult() {
 
 	result = "=== РЕЗУЛЬТАТ РАУНДА ===\n"
 
-	// Атака p1
-	if p1.Attack != p2.Defense {
-		dmg := damageByPart[p1.Attack]
-		p2.HP -= dmg
-		result += fmt.Sprintf(
-			"%s ударил %s в %s (-%d HP)\n",
-			p1.Name, p2.Name, p1.Attack, dmg,
-		)
-	} else {
-		result += fmt.Sprintf(
-			"%s защитился от удара %s\n",
-			p2.Name, p1.Name,
-		)
+	applyHit(p1, p2)
+	applyHit(p2, p1)
+
+	// Проверка окончания игры
+	if p1.HP <= 0 || p2.HP <= 0 {
+		phase = "GAME_OVER"
+		if p1.HP <= 0 {
+			result += "\nПОБЕДИЛ " + p2.Name + "\n"
+		} else {
+			result += "\nПОБЕДИЛ " + p1.Name + "\n"
+		}
+		return
 	}
 
-	// Атака p2
-	if p2.Attack != p1.Defense {
-		dmg := damageByPart[p2.Attack]
-		p1.HP -= dmg
-		result += fmt.Sprintf(
-			"%s ударил %s в %s (-%d HP)\n",
-			p2.Name, p1.Name, p2.Attack, dmg,
-		)
-	} else {
-		result += fmt.Sprintf(
-			"%s защитился от удара %s\n",
-			p1.Name, p2.Name,
-		)
-	}
-
-	result += fmt.Sprintf(
-		"\nHP:\n%s = %d\n%s = %d\n",
-		p1.Name, p1.HP,
-		p2.Name, p2.HP,
-	)
+	phase = "RESULT"
+	clearActions()
 }
 
-func resetRound() {
+// Нанесение урона
+func applyHit(attacker, defender *Player) {
+	if attacker.Attack != defender.Defense {
+		dmg := damageByPart[attacker.Attack]
+		defender.HP -= dmg
+		result += fmt.Sprintf(
+			"%s ударил %s в %s (-%d HP)\n",
+			attacker.Name, defender.Name, attacker.Attack, dmg,
+		)
+	} else {
+		result += fmt.Sprintf(
+			"%s защитился от удара %s\n",
+			defender.Name, attacker.Name,
+		)
+	}
+}
+
+// Очистка атак и защит
+func clearActions() {
 	for _, p := range players {
 		p.Attack = ""
 		p.Defense = ""
 	}
-	phase = "ATTACK"
+}
+
+// ===== ФОРМИРОВАНИЕ СТАТУСА =====
+func buildStatus() string {
+
+	status := "=== СОСТОЯНИЕ ИГРЫ ===\n"
+
+	for _, p := range players {
+		status += fmt.Sprintf("%s: %d HP\n", p.Name, p.HP)
+	}
+
+	status += "\nФаза: " + phase + "\n\n"
+
+	if phase == "RESULT" {
+		phase = "ATTACK"
+		return result + "\n" + status
+	}
+
+	if phase == "GAME_OVER" {
+		return result + "\n" + status + "\nИгра окончена\n"
+	}
+
+	return status
 }
