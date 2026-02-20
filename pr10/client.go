@@ -12,7 +12,7 @@ import (
 
 func main() {
 
-	server := "http://localhost:8080"
+	server := "https://opulent-guide-wrqvrrgpr9p25gq4-8080.app.github.dev/"
 	scanner := bufio.NewScanner(os.Stdin)
 
 	// Ввод имени игрока
@@ -72,3 +72,4 @@ func main() {
 		}
 	}
 }
+
