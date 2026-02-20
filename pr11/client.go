@@ -13,7 +13,7 @@ import (
 var lastChatCount = 0
 
 func main() {
-	server := "http://localhost:8080"
+	server := "https://supreme-succotash-r4pgx9gvqgxv254j5-8080.app.github.dev/"
 	scanner := bufio.NewScanner(os.Stdin)
 
 	fmt.Print("Введите ваш ник: ")
@@ -76,3 +76,4 @@ func main() {
 		}
 	}
 }
+
