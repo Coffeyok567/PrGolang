@@ -18,7 +18,6 @@ type Player struct {
 	Attack  string `json:"attack"`
 	Defense string `json:"defense"`
 	HP      int    `json:"hp"`
-	Online  bool   `json:"online"`
 }
 
 type ChatMessage struct {
@@ -28,9 +27,10 @@ type ChatMessage struct {
 }
 
 type GameState struct {
-	Players map[string]*Player `json:"players"`
-	Phase   string              `json:"phase"` // WAIT, ATTACK, DEFENSE, RESULT
-	Result  string              `json:"result"`
+	Players     map[string]*Player `json:"players"`
+	Phase       string              `json:"phase"` // WAIT, ATTACK, DEFENSE, RESULT
+	Result      string              `json:"result"`
+	PlayerCount int                 `json:"playerCount"`
 }
 
 // ========== Глобальные переменные ==========
@@ -44,9 +44,6 @@ var (
 	// Чат состояние
 	chatHistory []ChatMessage
 	chatMutex   sync.RWMutex
-	
-	// Каналы
-	serverOutput = make(chan string, 50)
 )
 
 // Урон по частям тела
@@ -57,7 +54,7 @@ var damageByPart = map[string]int{
 }
 
 func main() {
-	// Запуск консоли сервера в отдельной горутине
+	// Запуск консоли сервера
 	go serverConsole()
 
 	// Настройка HTTP маршрутов
@@ -68,12 +65,9 @@ func main() {
 	http.HandleFunc("/api/chat/history", handleChatHistory)
 	http.HandleFunc("/api/game/state", handleGameState)
 	http.HandleFunc("/api/game/exit", handleExit)
-	
-	// Статические файлы (для будущего веб-интерфейса)
-	http.Handle("/", http.FileServer(http.Dir("./static")))
 
-	serverOutput <- "🚀 Сервер запущен на http://localhost:8080"
-	serverOutput <- "📌 Команды сервера: /list, /clear, /help"
+	fmt.Println("🚀 Сервер запущен на http://localhost:8080")
+	fmt.Println("📌 Команды сервера: /list, /clear, /help")
 	
 	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
@@ -118,8 +112,11 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	players[name] = &Player{
 		Name:   name,
 		HP:     100,
-		Online: true,
+		Attack: "",
+		Defense: "",
 	}
+
+	fmt.Printf("✅ Игрок зарегистрирован: %s (всего игроков: %d)\n", name, len(players))
 
 	// Отправляем сообщение в чат
 	chatMutex.Lock()
@@ -130,11 +127,11 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	})
 	chatMutex.Unlock()
 
-	serverOutput <- fmt.Sprintf("✅ Игрок зарегистрирован: %s", name)
-
 	// Если набралось 2 игрока, начинаем игру
 	if len(players) == 2 {
 		phase = "ATTACK"
+		fmt.Println("🎮 ИГРА НАЧАЛАСЬ! Фаза АТАКИ")
+		
 		chatMutex.Lock()
 		chatHistory = append(chatHistory, ChatMessage{
 			Sender:    "СИСТЕМА",
@@ -145,7 +142,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{
-		"status": "success",
+		"status":  "success",
 		"message": "REGISTERED",
 	})
 }
@@ -162,14 +159,18 @@ func handleAttack(w http.ResponseWriter, r *http.Request) {
 		Attack string `json:"attack"`
 	}
 
-	json.NewDecoder(r.Body).Decode(&data)
+	err := json.NewDecoder(r.Body).Decode(&data)
+	if err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
 
 	pvpMutex.Lock()
 	defer pvpMutex.Unlock()
 
 	if phase != "ATTACK" {
 		json.NewEncoder(w).Encode(map[string]string{
-			"status": "error",
+			"status":  "error",
 			"message": "WRONG_PHASE",
 		})
 		return
@@ -178,18 +179,20 @@ func handleAttack(w http.ResponseWriter, r *http.Request) {
 	player, exists := players[data.Name]
 	if !exists {
 		json.NewEncoder(w).Encode(map[string]string{
-			"status": "error",
+			"status":  "error",
 			"message": "PLAYER_NOT_FOUND",
 		})
 		return
 	}
 
 	player.Attack = data.Attack
-	serverOutput <- fmt.Sprintf("⚔️ %s выбрал атаку: %s", data.Name, data.Attack)
+	fmt.Printf("⚔️ %s выбрал атаку: %s\n", data.Name, data.Attack)
 
 	// Проверяем, все ли сделали атаку
 	if allAttacks() {
 		phase = "DEFENSE"
+		fmt.Println("🛡️ Фаза ЗАЩИТЫ")
+		
 		chatMutex.Lock()
 		chatHistory = append(chatHistory, ChatMessage{
 			Sender:    "СИСТЕМА",
@@ -200,7 +203,7 @@ func handleAttack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{
-		"status": "success",
+		"status":  "success",
 		"message": "OK",
 	})
 }
@@ -217,14 +220,18 @@ func handleDefense(w http.ResponseWriter, r *http.Request) {
 		Defense string `json:"defense"`
 	}
 
-	json.NewDecoder(r.Body).Decode(&data)
+	err := json.NewDecoder(r.Body).Decode(&data)
+	if err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
 
 	pvpMutex.Lock()
 	defer pvpMutex.Unlock()
 
 	if phase != "DEFENSE" {
 		json.NewEncoder(w).Encode(map[string]string{
-			"status": "error",
+			"status":  "error",
 			"message": "WRONG_PHASE",
 		})
 		return
@@ -233,27 +240,31 @@ func handleDefense(w http.ResponseWriter, r *http.Request) {
 	player, exists := players[data.Name]
 	if !exists {
 		json.NewEncoder(w).Encode(map[string]string{
-			"status": "error",
+			"status":  "error",
 			"message": "PLAYER_NOT_FOUND",
 		})
 		return
 	}
 
 	player.Defense = data.Defense
-	serverOutput <- fmt.Sprintf("🛡️ %s выбрал защиту: %s", data.Name, data.Defense)
+	fmt.Printf("🛡️ %s выбрал защиту: %s\n", data.Name, data.Defense)
 
 	// Проверяем, все ли сделали защиту
 	if allDefenses() {
 		calculateRound()
 		phase = "RESULT"
 		
-		// Через 5 секунд начинаем новый раунд, если игра не закончена
+		// Через 8 секунд начинаем новый раунд
 		go func() {
-			time.Sleep(5 * time.Second)
+			time.Sleep(8 * time.Second)
 			pvpMutex.Lock()
+			defer pvpMutex.Unlock()
+			
 			if phase == "RESULT" && checkGameActive() {
 				resetRound()
 				phase = "ATTACK"
+				fmt.Println("⚔️ НОВЫЙ РАУНД! Фаза АТАКИ")
+				
 				chatMutex.Lock()
 				chatHistory = append(chatHistory, ChatMessage{
 					Sender:    "СИСТЕМА",
@@ -262,12 +273,11 @@ func handleDefense(w http.ResponseWriter, r *http.Request) {
 				})
 				chatMutex.Unlock()
 			}
-			pvpMutex.Unlock()
 		}()
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{
-		"status": "success",
+		"status":  "success",
 		"message": "OK",
 	})
 }
@@ -284,7 +294,11 @@ func handleChatSend(w http.ResponseWriter, r *http.Request) {
 		Message string `json:"message"`
 	}
 
-	json.NewDecoder(r.Body).Decode(&data)
+	err := json.NewDecoder(r.Body).Decode(&data)
+	if err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
 
 	chatMutex.Lock()
 	chatHistory = append(chatHistory, ChatMessage{
@@ -294,7 +308,7 @@ func handleChatSend(w http.ResponseWriter, r *http.Request) {
 	})
 	chatMutex.Unlock()
 
-	serverOutput <- fmt.Sprintf("💬 %s: %s", data.Name, data.Message)
+	fmt.Printf("💬 %s: %s\n", data.Name, data.Message)
 
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
@@ -306,13 +320,7 @@ func handleChatHistory(w http.ResponseWriter, r *http.Request) {
 	chatMutex.RLock()
 	defer chatMutex.RUnlock()
 	
-	// Отправляем последние 50 сообщений
-	start := 0
-	if len(chatHistory) > 50 {
-		start = len(chatHistory) - 50
-	}
-	
-	json.NewEncoder(w).Encode(chatHistory[start:])
+	json.NewEncoder(w).Encode(chatHistory)
 }
 
 // Получение состояния игры
@@ -320,10 +328,22 @@ func handleGameState(w http.ResponseWriter, r *http.Request) {
 	pvpMutex.RLock()
 	defer pvpMutex.RUnlock()
 	
+	// Создаем копию players для безопасной отправки
+	playersCopy := make(map[string]*Player)
+	for k, v := range players {
+		playersCopy[k] = &Player{
+			Name:    v.Name,
+			Attack:  v.Attack,
+			Defense: v.Defense,
+			HP:      v.HP,
+		}
+	}
+	
 	state := GameState{
-		Players: players,
-		Phase:   phase,
-		Result:  result,
+		Players:     playersCopy,
+		Phase:       phase,
+		Result:      result,
+		PlayerCount: len(players),
 	}
 	
 	json.NewEncoder(w).Encode(state)
@@ -343,6 +363,7 @@ func handleExit(w http.ResponseWriter, r *http.Request) {
 	defer pvpMutex.Unlock()
 
 	delete(players, name)
+	fmt.Printf("👋 Игрок вышел: %s\n", name)
 
 	chatMutex.Lock()
 	chatHistory = append(chatHistory, ChatMessage{
@@ -351,8 +372,6 @@ func handleExit(w http.ResponseWriter, r *http.Request) {
 		Timestamp: time.Now().Unix(),
 	})
 	chatMutex.Unlock()
-
-	serverOutput <- fmt.Sprintf("👋 Игрок вышел: %s", name)
 
 	if len(players) < 2 {
 		phase = "WAIT"
@@ -378,6 +397,9 @@ func allAttacks() bool {
 }
 
 func allDefenses() bool {
+	if len(players) < 2 {
+		return false
+	}
 	for _, p := range players {
 		if p.Defense == "" {
 			return false
@@ -398,7 +420,8 @@ func calculateRound() {
 
 	result = "\n=== РЕЗУЛЬТАТ РАУНДА ===\n"
 	
-	var messages []string
+	chatMutex.Lock()
+	defer chatMutex.Unlock()
 
 	// Атака p1
 	if p1.Attack != p2.Defense {
@@ -409,11 +432,19 @@ func calculateRound() {
 		}
 		msg := fmt.Sprintf("⚔️ %s ударил %s в %s (-%d HP)", p1.Name, p2.Name, p1.Attack, dmg)
 		result += msg + "\n"
-		messages = append(messages, msg)
+		chatHistory = append(chatHistory, ChatMessage{
+			Sender:    "СИСТЕМА",
+			Message:   msg,
+			Timestamp: time.Now().Unix(),
+		})
 	} else {
 		msg := fmt.Sprintf("🛡️ %s защитился от удара %s", p2.Name, p1.Name)
 		result += msg + "\n"
-		messages = append(messages, msg)
+		chatHistory = append(chatHistory, ChatMessage{
+			Sender:    "СИСТЕМА",
+			Message:   msg,
+			Timestamp: time.Now().Unix(),
+		})
 	}
 
 	// Атака p2
@@ -425,38 +456,52 @@ func calculateRound() {
 		}
 		msg := fmt.Sprintf("⚔️ %s ударил %s в %s (-%d HP)", p2.Name, p1.Name, p2.Attack, dmg)
 		result += msg + "\n"
-		messages = append(messages, msg)
+		chatHistory = append(chatHistory, ChatMessage{
+			Sender:    "СИСТЕМА",
+			Message:   msg,
+			Timestamp: time.Now().Unix(),
+		})
 	} else {
 		msg := fmt.Sprintf("🛡️ %s защитился от удара %s", p1.Name, p2.Name)
 		result += msg + "\n"
-		messages = append(messages, msg)
-	}
-
-	// Добавляем HP
-	result += fmt.Sprintf("\n❤️ HP: %s = %d | %s = %d\n", p1.Name, p1.HP, p2.Name, p2.HP)
-	messages = append(messages, fmt.Sprintf("❤️ %s: %d HP | %s: %d HP", p1.Name, p1.HP, p2.Name, p2.HP))
-
-	// Проверка на смерть
-	if p1.HP <= 0 && p2.HP <= 0 {
-		messages = append(messages, "💀 НИЧЬЯ! Оба игрока погибли!")
-	} else if p1.HP <= 0 {
-		messages = append(messages, fmt.Sprintf("🏆 %s ПОБЕДИЛ! %s повержен!", p2.Name, p1.Name))
-	} else if p2.HP <= 0 {
-		messages = append(messages, fmt.Sprintf("🏆 %s ПОБЕДИЛ! %s повержен!", p1.Name, p2.Name))
-	}
-
-	// Сохраняем в чат
-	chatMutex.Lock()
-	for _, msg := range messages {
 		chatHistory = append(chatHistory, ChatMessage{
 			Sender:    "СИСТЕМА",
 			Message:   msg,
 			Timestamp: time.Now().Unix(),
 		})
 	}
-	chatMutex.Unlock()
 
-	serverOutput <- "📊 Раунд завершен"
+	// Добавляем HP
+	hpMsg := fmt.Sprintf("❤️ %s: %d HP | %s: %d HP", p1.Name, p1.HP, p2.Name, p2.HP)
+	result += "\n" + hpMsg + "\n"
+	chatHistory = append(chatHistory, ChatMessage{
+		Sender:    "СИСТЕМА",
+		Message:   hpMsg,
+		Timestamp: time.Now().Unix(),
+	})
+
+	// Проверка на смерть
+	if p1.HP <= 0 && p2.HP <= 0 {
+		chatHistory = append(chatHistory, ChatMessage{
+			Sender:    "СИСТЕМА",
+			Message:   "💀 НИЧЬЯ! Оба игрока погибли!",
+			Timestamp: time.Now().Unix(),
+		})
+	} else if p1.HP <= 0 {
+		chatHistory = append(chatHistory, ChatMessage{
+			Sender:    "СИСТЕМА",
+			Message:   fmt.Sprintf("🏆 %s ПОБЕДИЛ! %s повержен!", p2.Name, p1.Name),
+			Timestamp: time.Now().Unix(),
+		})
+	} else if p2.HP <= 0 {
+		chatHistory = append(chatHistory, ChatMessage{
+			Sender:    "СИСТЕМА",
+			Message:   fmt.Sprintf("🏆 %s ПОБЕДИЛ! %s повержен!", p1.Name, p2.Name),
+			Timestamp: time.Now().Unix(),
+		})
+	}
+
+	fmt.Println("📊 Раунд завершен")
 }
 
 func resetRound() {
@@ -486,13 +531,10 @@ func serverConsole() {
 		switch cmd {
 		case "/list":
 			pvpMutex.RLock()
-			fmt.Println("\n=== Игроки онлайн ===")
+			fmt.Println("\n=== Игроки ===")
 			for name, p := range players {
-				status := "🟢"
-				if !p.Online {
-					status = "🔴"
-				}
-				fmt.Printf("%s %s: HP=%d\n", status, name, p.HP)
+				fmt.Printf("%s: HP=%d, Attack=%s, Defense=%s\n", 
+					name, p.HP, p.Attack, p.Defense)
 			}
 			fmt.Printf("Фаза: %s\n", phase)
 			pvpMutex.RUnlock()
