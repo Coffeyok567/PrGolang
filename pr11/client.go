@@ -13,7 +13,7 @@ import (
 var display_chan = make(chan string, 10)
 
 func main() {
-	server := "http://localhost:8080"
+	server := "https://super-duper-memory-g47qp9qwj49gfw6qv-8080.app.github.dev/"
 	scanner := bufio.NewScanner(os.Stdin)
 
 	// Горутина для печати сообщений из канала
@@ -123,3 +123,4 @@ func main() {
 		}
 	}
 }
+
