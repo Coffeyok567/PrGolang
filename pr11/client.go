@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	server := "http://localhost:8080"
+	server := "https://musical-carnival-v6qv54v7j4443vjg-8080.app.github.dev/"
 	scanner := bufio.NewScanner(os.Stdin)
 
 	// ===== ввод ника =====
@@ -80,3 +80,4 @@ func main() {
 		}
 	}
 }
+
