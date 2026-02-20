@@ -18,9 +18,10 @@ type ChatMessage struct {
 }
 
 type GameState struct {
-	Players map[string]*Player `json:"players"`
-	Phase   string              `json:"phase"`
-	Result  string              `json:"result"`
+	Players     map[string]*Player `json:"players"`
+	Phase       string              `json:"phase"`
+	Result      string              `json:"result"`
+	PlayerCount int                 `json:"playerCount"`
 }
 
 type Player struct {
@@ -28,16 +29,12 @@ type Player struct {
 	Attack  string `json:"attack"`
 	Defense string `json:"defense"`
 	HP      int    `json:"hp"`
-	Online  bool   `json:"online"`
 }
 
 func main() {
-	server := "https://supreme-fishstick-97j9xv94gvppcp64p-8080.app.github.dev/"
+	server := "http://localhost:8080"
 	scanner := bufio.NewScanner(os.Stdin)
 
-	// Очищаем экран (работает в большинстве терминалов)
-	fmt.Print("\033[H\033[2J")
-	
 	fmt.Println("╔══════════════════════════════════════╗")
 	fmt.Println("║     PVP ЧАТ - ИГРА С ОБЩЕНИЕМ        ║")
 	fmt.Println("╚══════════════════════════════════════╝")
@@ -52,40 +49,56 @@ func main() {
 	}
 
 	// Регистрация в PVP
-	register(server, name)
+	if !register(server, name) {
+		fmt.Println("Нажмите Enter для выхода...")
+		scanner.Scan()
+		return
+	}
 
-	// Запуск горутин
-	go listenGameState(server, name)
+	// Запуск горутин для получения данных
 	go listenChat(server, name)
-	
-	// Таймер для обновления интерфейса
-	go refreshUI(server, name)
+	go listenGameState(server, name)
+
+	// Таймер для проверки состояния
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		for range ticker.C {
+			checkGameState(server, name)
+		}
+	}()
 
 	// Основной цикл ввода сообщений
-	fmt.Println("\n📝 Введите сообщение (или '!exit' для выхода):")
-	fmt.Println("💡 Для отправки сообщения просто напишите текст")
+	fmt.Println("\n📝 Просто пишите текст для отправки в чат")
+	fmt.Println("💡 Команды: /attack (атака), /defense (защита), /exit - выход")
+	fmt.Println("═══════════════════════════════════════════════════════════")
 	
 	for scanner.Scan() {
 		text := scanner.Text()
 		
-		if text == "!exit" {
+		if text == "/exit" {
 			exit(server, name)
 			break
 		}
 		
-		if text != "" {
+		if strings.HasPrefix(text, "/attack ") {
+			attack := strings.TrimPrefix(text, "/attack ")
+			sendAttack(server, name, attack)
+		} else if strings.HasPrefix(text, "/defense ") {
+			defense := strings.TrimPrefix(text, "/defense ")
+			sendDefense(server, name, defense)
+		} else if text != "" && !strings.HasPrefix(text, "/") {
 			// Отправляем сообщение в чат
 			sendMessage(server, name, text)
 		}
 	}
 }
 
-func register(server, name string) {
+func register(server, name string) bool {
 	data := strings.NewReader(name)
 	resp, err := http.Post(server+"/api/register", "text/plain", data)
 	if err != nil {
-		fmt.Println("Ошибка подключения к серверу:", err)
-		return
+		fmt.Println("❌ Ошибка подключения к серверу:", err)
+		return false
 	}
 	defer resp.Body.Close()
 
@@ -101,9 +114,12 @@ func register(server, name string) {
 		default:
 			fmt.Println("❌ Ошибка регистрации:", result["message"])
 		}
-	} else {
-		fmt.Println("✅ Вы зарегистрированы в PVP!")
+		return false
 	}
+
+	fmt.Println("✅ Вы зарегистрированы в PVP!")
+	fmt.Println("⏳ Ожидание второго игрока...")
+	return true
 }
 
 func exit(server, name string) {
@@ -120,8 +136,64 @@ func sendMessage(server, name, message string) {
 	http.Post(server+"/api/chat/send", "application/json", strings.NewReader(string(jsonData)))
 }
 
+func sendAttack(server, name, attack string) {
+	if attack != "head" && attack != "body" && attack != "legs" {
+		fmt.Println("❌ Атака должна быть: head, body или legs")
+		return
+	}
+	
+	data := map[string]string{
+		"name":   name,
+		"attack": attack,
+	}
+	jsonData, _ := json.Marshal(data)
+	resp, err := http.Post(server+"/api/attack", "application/json", strings.NewReader(string(jsonData)))
+	if err != nil {
+		fmt.Println("❌ Ошибка отправки атаки")
+		return
+	}
+	defer resp.Body.Close()
+	
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	
+	if result["status"] == "success" {
+		fmt.Printf("✅ Атака %s отправлена\n", attack)
+	} else if result["message"] == "WRONG_PHASE" {
+		fmt.Println("❌ Сейчас не фаза атаки")
+	}
+}
+
+func sendDefense(server, name, defense string) {
+	if defense != "head" && defense != "body" && defense != "legs" {
+		fmt.Println("❌ Защита должна быть: head, body или legs")
+		return
+	}
+	
+	data := map[string]string{
+		"name":    name,
+		"defense": defense,
+	}
+	jsonData, _ := json.Marshal(data)
+	resp, err := http.Post(server+"/api/defense", "application/json", strings.NewReader(string(jsonData)))
+	if err != nil {
+		fmt.Println("❌ Ошибка отправки защиты")
+		return
+	}
+	defer resp.Body.Close()
+	
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	
+	if result["status"] == "success" {
+		fmt.Printf("✅ Защита %s отправлена\n", defense)
+	} else if result["message"] == "WRONG_PHASE" {
+		fmt.Println("❌ Сейчас не фаза защиты")
+	}
+}
+
 func listenChat(server, name string) {
-	lastIndex := 0
+	lastCount := 0
 	for {
 		resp, err := http.Get(server + "/api/chat/history")
 		if err == nil {
@@ -129,11 +201,8 @@ func listenChat(server, name string) {
 			json.NewDecoder(resp.Body).Decode(&messages)
 			resp.Body.Close()
 
-			if len(messages) > lastIndex {
-				// Сохраняем позицию курсора
-				fmt.Print("\033[s")
-				
-				for i := lastIndex; i < len(messages); i++ {
+			if len(messages) > lastCount {
+				for i := lastCount; i < len(messages); i++ {
 					msg := messages[i]
 					t := time.Unix(msg.Timestamp, 0).Format("15:04:05")
 					
@@ -145,18 +214,14 @@ func listenChat(server, name string) {
 						fmt.Printf("\033[36m[%s] %s: %s\033[0m\n", t, msg.Sender, msg.Message)
 					default:
 						if msg.Sender == name {
-							fmt.Printf("\033[32m[%s] %s: %s\033[0m\n", t, msg.Sender, msg.Message)
+							fmt.Printf("\033[32m[%s] Вы: %s\033[0m\n", t, msg.Message)
 						} else {
 							fmt.Printf("\033[37m[%s] %s: %s\033[0m\n", t, msg.Sender, msg.Message)
 						}
 					}
 				}
-				
-				// Возвращаем курсор и показываем приглашение
-				fmt.Print("\033[u")
-				fmt.Print("📝 Сообщение: ")
-				
-				lastIndex = len(messages)
+				lastCount = len(messages)
+				fmt.Print("> ")
 			}
 		}
 		time.Sleep(1 * time.Second)
@@ -171,123 +236,52 @@ func listenGameState(server, name string) {
 			json.NewDecoder(resp.Body).Decode(&state)
 			resp.Body.Close()
 
-			// Проверяем, наш ли это ход
-			if player, exists := state.Players[name]; exists {
-				switch state.Phase {
-				case "ATTACK":
-					if player.Attack == "" {
-						// Сохраняем позицию, показываем промпт и возвращаемся
-						fmt.Print("\033[s")
-						fmt.Print("\n⚔️ Введите атаку (head/body/legs): ")
-						fmt.Print("\033[u")
-						
-						// Читаем ввод в отдельной горутине
-						go func() {
-							scanner := bufio.NewScanner(os.Stdin)
-							if scanner.Scan() {
-								attack := strings.TrimSpace(scanner.Text())
-								if attack == "head" || attack == "body" || attack == "legs" {
-									sendAttack(server, name, attack)
-								}
-							}
-						}()
+			// Проверяем фазу игры
+			if state.PlayerCount == 2 {
+				if state.Phase == "ATTACK" {
+					if player, exists := state.Players[name]; exists && player.Attack == "" {
+						fmt.Printf("\n⚔️ ФАЗА АТАКИ! Используйте: /attack head|body|legs\n> ")
 					}
-					
-				case "DEFENSE":
-					if player.Defense == "" && player.Attack != "" {
-						fmt.Print("\033[s")
-						fmt.Print("\n🛡️ Введите защиту (head/body/legs): ")
-						fmt.Print("\033[u")
-						
-						go func() {
-							scanner := bufio.NewScanner(os.Stdin)
-							if scanner.Scan() {
-								defense := strings.TrimSpace(scanner.Text())
-								if defense == "head" || defense == "body" || defense == "legs" {
-									sendDefense(server, name, defense)
-								}
-							}
-						}()
+				} else if state.Phase == "DEFENSE" {
+					if player, exists := state.Players[name]; exists && player.Defense == "" && player.Attack != "" {
+						fmt.Printf("\n🛡️ ФАЗА ЗАЩИТЫ! Используйте: /defense head|body|legs\n> ")
 					}
+				} else if state.Phase == "RESULT" && state.Result != "" {
+					fmt.Printf("\n%s\n> ", state.Result)
 				}
 			}
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(1 * time.Second)
 	}
 }
 
-func refreshUI(server, name string) {
-	for {
-		resp, err := http.Get(server + "/api/game/state")
-		if err == nil {
-			var state GameState
-			json.NewDecoder(resp.Body).Decode(&state)
-			resp.Body.Close()
+func checkGameState(server, name string) {
+	resp, err := http.Get(server + "/api/game/state")
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
 
-			// Рисуем верхнюю панель с информацией об игре
-			fmt.Print("\033[2J\033[H") // Очищаем экран и ставим курсор в начало
-			
-			fmt.Println("╔════════════════════════════════════════════════════════════╗")
-			fmt.Printf("║  🎮 PVP ЧАТ                         Игрок: %-20s ║\n", name)
-			fmt.Println("╠════════════════════════════════════════════════════════════╣")
-			
-			// Информация об игроках
-			players := make([]*Player, 0, 2)
-			for _, p := range state.Players {
-				players = append(players, p)
-			}
-			
-			if len(players) == 2 {
-				p1, p2 := players[0], players[1]
-				fmt.Printf("║  %-15s ❤️ %3d HP          %-15s ❤️ %3d HP  ║\n", 
-					p1.Name, p1.HP, p2.Name, p2.HP)
-			} else if len(players) == 1 {
-				fmt.Printf("║  %-15s ❤️ %3d HP          Ожидание игрока...     ║\n", 
-					players[0].Name, players[0].HP)
-			} else {
-				fmt.Println("║  Ожидание игроков...                                  ║")
-			}
-			
-			// Фаза игры
-			phaseStr := ""
-			switch state.Phase {
-			case "WAIT":
-				phaseStr = "⏳ Ожидание"
-			case "ATTACK":
-				phaseStr = "⚔️ АТАКА"
-			case "DEFENSE":
-				phaseStr = "🛡️ ЗАЩИТА"
-			case "RESULT":
-				phaseStr = "📊 РЕЗУЛЬТАТ"
-			}
-			fmt.Printf("║  Фаза: %-20s                               ║\n", phaseStr)
-			
-			fmt.Println("╠════════════════════════════════════════════════════════════╣")
-			fmt.Println("║  ЧАТ СООБЩЕНИЙ:                                           ║")
-			fmt.Println("╚════════════════════════════════════════════════════════════╝")
-			
-			// Возвращаемся к чату
-			fmt.Print("\033[10B") // Смещаемся вниз на 10 строк
+	var state GameState
+	json.NewDecoder(resp.Body).Decode(&state)
+
+	// Показываем статус игры
+	if state.PlayerCount == 2 {
+		// Показываем HP игроков
+		hpInfo := "❤️ "
+		for _, p := range state.Players {
+			hpInfo += fmt.Sprintf("%s:%d ", p.Name, p.HP)
 		}
-		time.Sleep(2 * time.Second)
+		fmt.Printf("\r%s Фаза: %s       ", hpInfo, state.Phase)
+	} else if state.PlayerCount == 1 {
+		fmt.Printf("\r⏳ Ожидание второго игрока... Всего игроков: %d       ", state.PlayerCount)
 	}
 }
 
-func sendAttack(server, name, attack string) {
-	data := map[string]string{
-		"name":   name,
-		"attack": attack,
+func checkGameStateSimple(server string) {
+	resp, err := http.Get(server + "/api/game/state")
+	if err != nil {
+		return
 	}
-	jsonData, _ := json.Marshal(data)
-	http.Post(server+"/api/attack", "application/json", strings.NewReader(string(jsonData)))
+	defer resp.Body.Close()
 }
-
-func sendDefense(server, name, defense string) {
-	data := map[string]string{
-		"name":    name,
-		"defense": defense,
-	}
-	jsonData, _ := json.Marshal(data)
-	http.Post(server+"/api/defense", "application/json", strings.NewReader(string(jsonData)))
-}
-
