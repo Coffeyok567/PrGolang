@@ -19,7 +19,7 @@ var chatMessages = make(chan string, 20)
 var lastMessageCount = 0
 var userName string
 var chatRunning = true
-var serverAddress = "http://localhost:8080"
+var serverAddress = "https://redesigned-space-spoon-x5vw46wqg674f6546-8080.app.github.dev/"
 
 // Функция для получения сообщений из чата
 func fetchChatMessages() {
@@ -1193,3 +1193,4 @@ func main() {
 		fmt.Scanln()
 	}
 }
+
