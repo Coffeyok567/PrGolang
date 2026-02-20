@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	server := "http://localhost:8080"
+	server := "https://stunning-computing-machine-g47qp9qwv9jvcvqpq-8080.app.github.dev/"
 	scanner := bufio.NewScanner(os.Stdin)
 
 	fmt.Print("Введите ник: ")
@@ -77,3 +77,4 @@ func main() {
 		}
 	}
 }
+
