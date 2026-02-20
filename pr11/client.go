@@ -32,7 +32,7 @@ type Player struct {
 }
 
 func main() {
-	server := "http://localhost:8080"
+	server := "https://fantastic-space-spoon-5gxq96qpjqqgf45gr-8080.app.github.dev/"
 	scanner := bufio.NewScanner(os.Stdin)
 
 	fmt.Println("╔══════════════════════════════════════╗")
@@ -285,3 +285,4 @@ func checkGameStateSimple(server string) {
 	}
 	defer resp.Body.Close()
 }
+
