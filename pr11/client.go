@@ -32,7 +32,7 @@ type Player struct {
 }
 
 func main() {
-	server := "http://localhost:8080"
+	server := "https://supreme-fishstick-97j9xv94gvppcp64p-8080.app.github.dev/"
 	scanner := bufio.NewScanner(os.Stdin)
 
 	// Очищаем экран (работает в большинстве терминалов)
@@ -290,3 +290,4 @@ func sendDefense(server, name, defense string) {
 	jsonData, _ := json.Marshal(data)
 	http.Post(server+"/api/defense", "application/json", strings.NewReader(string(jsonData)))
 }
+
