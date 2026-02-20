@@ -249,18 +249,6 @@ func (p *Player) MakeChoice() {
 	}
 }
 
-// Трофеи - добавляем предмет врагу
-type Enemy struct {
-	BaseCharacter
-	Loot Item // Предмет, который выпадает при победе
-}
-
-func (e *Enemy) MakeRandomChoice() {
-	parts := []BodyPart{Head, Torso, Legs}
-	e.SetAttack(parts[rand.Intn(len(parts))])
-	e.SetBlock(parts[rand.Intn(len(parts))])
-}
-
 // Методы для работы с инвентарем
 func (p *Player) ShowInventory() {
 	fmt.Println("\n══════════════════════════════════════════════════")
@@ -466,127 +454,6 @@ func generateRandomItem() Item {
 	allItems = append(allItems, consumables...)
 
 	return allItems[rand.Intn(len(allItems))]
-}
-
-type Battle struct {
-	player *Player
-	enemy  *Enemy
-	round  int
-}
-
-func NewBattle(player *Player, enemy *Enemy) *Battle {
-	return &Battle{
-		player: player,
-		enemy:  enemy,
-		round:  1,
-	}
-}
-
-func (b *Battle) Start() bool {
-	fmt.Println("\n══════════════════════════════════════════════════")
-	fmt.Println("                ⚔  НАЧАЛО БОЯ  ⚔                 ")
-	fmt.Println("══════════════════════════════════════════════════")
-	fmt.Printf("\n  🐷 %s\n", b.player.GetName())
-	showHealthBar(b.player.GetHP(), b.player.MaxHP, "")
-	fmt.Printf("\n  👾 %s\n", b.enemy.GetName())
-	showHealthBar(b.enemy.GetHP(), b.enemy.MaxHP, "")
-	fmt.Println()
-
-	for b.player.IsAlive() && b.enemy.IsAlive() {
-		b.executeRound()
-	}
-
-	b.finish()
-
-	// Если игрок победил, добавляем трофей в инвентарь
-	if b.player.IsAlive() && b.enemy.Loot.Name != "" {
-		fmt.Println("\n══════════════════════════════════════════════════")
-		fmt.Println("                     🏆 ПОБЕДА 🏆                  ")
-		fmt.Println("══════════════════════════════════════════════════")
-		fmt.Printf("\n  Вы получили трофей: %s!\n", b.enemy.Loot.Name)
-		b.player.Inventory = append(b.player.Inventory, b.enemy.Loot)
-	}
-
-	return b.player.IsAlive()
-}
-
-func (b *Battle) executeRound() {
-	fmt.Println("\n══════════════════════════════════════════════════")
-	fmt.Printf("                    РАУНД %d                    \n", b.round)
-	fmt.Println("══════════════════════════════════════════════════")
-
-	b.player.MakeChoice()
-	b.enemy.MakeRandomChoice()
-
-	b.displayChoices()
-	b.processAttacks()
-	b.displayStatus()
-
-	b.round++
-}
-
-func (b *Battle) displayChoices() {
-	fmt.Println("\n················································")
-	fmt.Println("              ВЫБОРЫ ИГРОКОВ")
-	fmt.Println("················································")
-	fmt.Printf("\n  🐷 %s:\n", b.player.GetName())
-	fmt.Printf("     ⚔ Атакует:   %s\n", b.player.Hit())
-	fmt.Printf("     🛡 Защищает:  %s\n", b.player.Block())
-
-	fmt.Printf("\n  👾 %s:\n", b.enemy.GetName())
-	fmt.Printf("     ⚔ Атакует:   %s\n", b.enemy.Hit())
-	fmt.Printf("     🛡 Защищает:  %s\n", b.enemy.Block())
-}
-
-func (b *Battle) processAttacks() {
-	fmt.Println("\n················································")
-	fmt.Println("              РЕЗУЛЬТАТЫ АТАК")
-	fmt.Println("················································")
-
-	playerDamage := b.player.GetStrength()
-	if b.player.Hit() != b.enemy.Block() {
-		b.enemy.TakeDamage(playerDamage)
-		fmt.Printf("\n  ⚔ %s наносит %d урона %s!\n",
-			b.player.GetName(), playerDamage, b.enemy.GetName())
-	} else {
-		fmt.Printf("\n  🛡 %s блокирует удар %s!\n",
-			b.enemy.GetName(), b.player.GetName())
-	}
-
-	if b.enemy.IsAlive() && b.enemy.Hit() != b.player.Block() {
-		enemyDamage := b.enemy.GetStrength()
-		b.player.TakeDamage(enemyDamage)
-		fmt.Printf("  ⚔ %s наносит %d урона %s!\n",
-			b.enemy.GetName(), enemyDamage, b.player.GetName())
-	} else if b.enemy.IsAlive() {
-		fmt.Printf("  🛡 %s блокирует удар %s!\n",
-			b.player.GetName(), b.enemy.GetName())
-	}
-}
-
-func (b *Battle) displayStatus() {
-	fmt.Println("\n················································")
-	fmt.Println("              ТЕКУЩЕЕ СОСТОЯНИЕ")
-	fmt.Println("················································")
-	fmt.Printf("\n  🐷 %s:\n", b.player.GetName())
-	showHealthBar(b.player.GetHP(), b.player.MaxHP, "")
-	fmt.Printf("\n  👾 %s:\n", b.enemy.GetName())
-	showHealthBar(b.enemy.GetHP(), b.enemy.MaxHP, "")
-	fmt.Println()
-}
-
-func (b *Battle) finish() {
-	fmt.Println("\n══════════════════════════════════════════════════")
-	fmt.Println("                ⚔  БОЙ ЗАВЕРШЕН  ⚔               ")
-	fmt.Println("══════════════════════════════════════════════════")
-	if b.player.IsAlive() {
-		fmt.Printf("\n  🏆 ПОБЕДИТЕЛЬ: %s!\n", b.player.GetName())
-		fmt.Printf("  💀 ПРОИГРАВШИЙ: %s\n", b.enemy.GetName())
-	} else {
-		fmt.Printf("\n  🏆 ПОБЕДИТЕЛЬ: %s!\n", b.enemy.GetName())
-		fmt.Printf("  💀 ПРОИГРАВШИЙ: %s\n", b.player.GetName())
-	}
-	fmt.Println()
 }
 
 // ==================== PvP (ГОРЯЧИЙ СТУЛ) ====================
@@ -865,7 +732,6 @@ func startNetworkClient() {
 
 // Общая логика сетевого боя
 func startNetworkBattle(conn net.Conn, hostPlayer, clientPlayer *Player, isHost bool) {
-	reader := bufio.NewReader(conn)
 	encoder := json.NewEncoder(conn)
 	decoder := json.NewDecoder(conn)
 
@@ -908,22 +774,63 @@ func startNetworkBattle(conn net.Conn, hostPlayer, clientPlayer *Player, isHost 
 
 		// Если наш ход
 		if (round%2 == 1 && isHost) || (round%2 == 0 && !isHost) {
-			// Делаем выбор
+			// Делаем выбор с поддержкой чата
 			fmt.Println("\n  ⚔  Выберите часть тела для АТАКИ:")
 			fmt.Println("     1. Голова")
 			fmt.Println("     2. Торс")
 			fmt.Println("     3. Ноги")
 			fmt.Print("  ➤ ")
-			var attack int
-			fmt.Scan(&attack)
+			
+			reader := bufio.NewReader(os.Stdin)
+			var attack, block int
+			
+			// Ввод атаки с поддержкой чата
+			for {
+				input, _ := reader.ReadString('\n')
+				input = strings.TrimSpace(input)
+
+				if len(input) > 0 && (input[0] < '0' || input[0] > '9') {
+					sendChatMessage(input)
+					fmt.Println("\n  ✅ Сообщение отправлено в чат!")
+					fmt.Print("  ➤ ")
+					continue
+				}
+
+				fmt.Sscanf(input, "%d", &attack)
+				if attack >= 1 && attack <= 3 {
+					break
+				} else {
+					fmt.Println("  ⚠ Неверный выбор, попробуйте снова")
+					fmt.Print("  ➤ ")
+				}
+			}
 
 			fmt.Println("\n  🛡  Выберите часть тела для ЗАЩИТЫ:")
 			fmt.Println("     1. Голова")
 			fmt.Println("     2. Торс")
 			fmt.Println("     3. Ноги")
 			fmt.Print("  ➤ ")
-			var block int
-			fmt.Scan(&block)
+
+			// Ввод защиты с поддержкой чата
+			for {
+				input, _ := reader.ReadString('\n')
+				input = strings.TrimSpace(input)
+
+				if len(input) > 0 && (input[0] < '0' || input[0] > '9') {
+					sendChatMessage(input)
+					fmt.Println("\n  ✅ Сообщение отправлено в чат!")
+					fmt.Print("  ➤ ")
+					continue
+				}
+
+				fmt.Sscanf(input, "%d", &block)
+				if block >= 1 && block <= 3 {
+					break
+				} else {
+					fmt.Println("  ⚠ Неверный выбор, попробуйте снова")
+					fmt.Print("  ➤ ")
+				}
+			}
 
 			currentPlayer.SetAttack(getBodyPart(attack))
 			currentPlayer.SetBlock(getBodyPart(block))
@@ -941,28 +848,70 @@ func startNetworkBattle(conn net.Conn, hostPlayer, clientPlayer *Player, isHost 
 		} else {
 			// Ждем действие соперника
 			fmt.Println("\n  ⏳ Ожидание хода соперника...")
+			fmt.Println("  💬 Вы можете писать в чат:")
 
 			var otherAction PlayerAction
 			decoder.Decode(&otherAction)
 			otherPlayer.SetAttack(getBodyPart(otherAction.Attack))
 			otherPlayer.SetBlock(getBodyPart(otherAction.Block))
 
-			// Делаем свой ход
+			// Делаем свой ход с поддержкой чата
 			fmt.Println("\n  ⚔  Выберите часть тела для АТАКИ:")
 			fmt.Println("     1. Голова")
 			fmt.Println("     2. Торс")
 			fmt.Println("     3. Ноги")
 			fmt.Print("  ➤ ")
-			var attack int
-			fmt.Scan(&attack)
+			
+			reader := bufio.NewReader(os.Stdin)
+			var attack, block int
+			
+			// Ввод атаки с поддержкой чата
+			for {
+				input, _ := reader.ReadString('\n')
+				input = strings.TrimSpace(input)
+
+				if len(input) > 0 && (input[0] < '0' || input[0] > '9') {
+					sendChatMessage(input)
+					fmt.Println("\n  ✅ Сообщение отправлено в чат!")
+					fmt.Print("  ➤ ")
+					continue
+				}
+
+				fmt.Sscanf(input, "%d", &attack)
+				if attack >= 1 && attack <= 3 {
+					break
+				} else {
+					fmt.Println("  ⚠ Неверный выбор, попробуйте снова")
+					fmt.Print("  ➤ ")
+				}
+			}
 
 			fmt.Println("\n  🛡  Выберите часть тела для ЗАЩИТЫ:")
 			fmt.Println("     1. Голова")
 			fmt.Println("     2. Торс")
 			fmt.Println("     3. Ноги")
 			fmt.Print("  ➤ ")
-			var block int
-			fmt.Scan(&block)
+
+			// Ввод защиты с поддержкой чата
+			for {
+				input, _ := reader.ReadString('\n')
+				input = strings.TrimSpace(input)
+
+				if len(input) > 0 && (input[0] < '0' || input[0] > '9') {
+					sendChatMessage(input)
+					fmt.Println("\n  ✅ Сообщение отправлено в чат!")
+					fmt.Print("  ➤ ")
+					continue
+				}
+
+				fmt.Sscanf(input, "%d", &block)
+				if block >= 1 && block <= 3 {
+					break
+				} else {
+					fmt.Println("  ⚠ Неверный выбор, попробуйте снова")
+					fmt.Print("  ➤ ")
+				}
+			}
 
 			currentPlayer.SetAttack(getBodyPart(attack))
 			currentPlayer.SetBlock(getBodyPart(block))
@@ -974,456 +923,4 @@ func startNetworkBattle(conn net.Conn, hostPlayer, clientPlayer *Player, isHost 
 
 		// Показываем выборы
 		fmt.Println("\n················································")
-		fmt.Println("              РЕЗУЛЬТАТЫ РАУНДА")
-		fmt.Println("················································")
-		fmt.Printf("\n  👤 %s:\n", hostPlayer.GetName())
-		fmt.Printf("     ⚔ Атакует:   %s\n", hostPlayer.Hit())
-		fmt.Printf("     🛡 Защищает:  %s\n", hostPlayer.Block())
-		fmt.Printf("\n  👤 %s:\n", clientPlayer.GetName())
-		fmt.Printf("     ⚔ Атакует:   %s\n", clientPlayer.Hit())
-		fmt.Printf("     🛡 Защищает:  %s\n", clientPlayer.Block())
-
-		// Обрабатываем атаки
-		fmt.Println("\n················································")
-		fmt.Println("              РЕЗУЛЬТАТЫ АТАК")
-		fmt.Println("················································")
-
-		// Атака хоста
-		if hostPlayer.Hit() != clientPlayer.Block() {
-			damage := hostPlayer.GetStrength()
-			clientPlayer.TakeDamage(damage)
-			fmt.Printf("\n  ⚔ %s наносит %d урона %s!\n",
-				hostPlayer.GetName(), damage, clientPlayer.GetName())
-		} else {
-			fmt.Printf("\n  🛡 %s блокирует удар %s!\n",
-				clientPlayer.GetName(), hostPlayer.GetName())
-		}
-
-		// Атака клиента (если жив)
-		if clientPlayer.IsAlive() && clientPlayer.Hit() != hostPlayer.Block() {
-			damage := clientPlayer.GetStrength()
-			hostPlayer.TakeDamage(damage)
-			fmt.Printf("  ⚔ %s наносит %d урона %s!\n",
-				clientPlayer.GetName(), damage, hostPlayer.GetName())
-		} else if clientPlayer.IsAlive() {
-			fmt.Printf("  🛡 %s блокирует удар %s!\n",
-				hostPlayer.GetName(), clientPlayer.GetName())
-		}
-
-		// Показываем состояние
-		fmt.Println("\n················································")
-		fmt.Println("              ТЕКУЩЕЕ СОСТОЯНИЕ")
-		fmt.Println("················································")
-		fmt.Printf("\n  👤 %s:\n", hostPlayer.GetName())
-		showHealthBar(hostPlayer.GetHP(), hostPlayer.MaxHP, "")
-		fmt.Printf("\n  👤 %s:\n", clientPlayer.GetName())
-		showHealthBar(clientPlayer.GetHP(), clientPlayer.MaxHP, "")
-
-		// Проверка на окончание игры
-		if !hostPlayer.IsAlive() || !clientPlayer.IsAlive() {
-			gameOver = true
-		}
-
-		round++
-	}
-
-	// Объявляем победителя
-	fmt.Println("\n══════════════════════════════════════════════════")
-	fmt.Println("                ⚔  БОЙ ЗАВЕРШЕН  ⚔               ")
-	fmt.Println("══════════════════════════════════════════════════")
-	if hostPlayer.IsAlive() {
-		fmt.Printf("\n  🏆 ПОБЕДИТЕЛЬ: %s (хост)!\n", hostPlayer.GetName())
-		fmt.Printf("  💀 ПРОИГРАВШИЙ: %s\n", clientPlayer.GetName())
-	} else {
-		fmt.Printf("\n  🏆 ПОБЕДИТЕЛЬ: %s (клиент)!\n", clientPlayer.GetName())
-		fmt.Printf("  💀 ПРОИГРАВШИЙ: %s\n", hostPlayer.GetName())
-	}
-	fmt.Println()
-}
-
-// ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
-
-// Вспомогательные функции для красивого интерфейса
-func showHealthBar(currentHP, maxHP int, name string) {
-	if name != "" {
-		fmt.Printf("  %s: ", name)
-	} else {
-		fmt.Print("     ")
-	}
-
-	barWidth := 20
-	percent := float64(currentHP) / float64(maxHP)
-	filled := int(float64(barWidth) * percent)
-	empty := barWidth - filled
-
-	bar := ""
-	for i := 0; i < filled; i++ {
-		bar += "█"
-	}
-	for i := 0; i < empty; i++ {
-		bar += "░"
-	}
-
-	fmt.Printf("[%s] %d/%d ❤\n", bar, currentHP, maxHP)
-}
-
-func getBodyPart(choice int) BodyPart {
-	switch choice {
-	case 1:
-		return Head
-	case 2:
-		return Torso
-	case 3:
-		return Legs
-	default:
-		return Torso
-	}
-}
-
-func displayWelcomeMessage() {
-	fmt.Println("\n╔══════════════════════════════════════════════════╗")
-	fmt.Println("║      ДОБРО ПОЖАЛОВАТЬ В TAD ADVENTURE           ║")
-	fmt.Println("╠══════════════════════════════════════════════════╣")
-	fmt.Println("║         Игра с фоновым чатом!                   ║")
-	fmt.Println("║     💬 Общайтесь с другими игроками             ║")
-	fmt.Println("║     🌐 Сетевой PvP режим                         ║")
-	fmt.Println("╚══════════════════════════════════════════════════╝")
-	fmt.Println()
-}
-
-func createPlayer() *Player {
-	var playerName string
-	fmt.Print("  Введите имя вашего персонажа: ")
-	fmt.Scan(&playerName)
-
-	fmt.Println("\n╔══════════════════════════════════════════════════╗")
-	fmt.Println("║              СОЗДАНИЕ ПЕРСОНАЖА                 ║")
-	fmt.Println("╚══════════════════════════════════════════════════╝")
-	fmt.Printf("\n  Добро пожаловать, %s!\n", playerName)
-	fmt.Println("\n  Стартовые предметы:")
-	fmt.Println("    ⚔ Деревянный меч         [АТК +3]")
-	fmt.Println("    🛡 Кожаный жилет          [ЗАЩ +2]")
-	fmt.Println("    💊 Простое зелье здоровья [ВОССТ +25 HP]")
-	fmt.Println()
-
-	// Даем игроку стартовые предметы
-	starterItems := []Item{
-		{Name: "Деревянный меч", Type: WeaponType, Attack: 3},
-		{Name: "Кожаный жилет", Type: ArmorType, Defence: 2},
-		{Name: "Простое зелье здоровья", Type: Consumable, PlusHP: 25},
-	}
-
-	return &Player{
-		BaseCharacter: BaseCharacter{
-			Name:      playerName,
-			HP:        100,
-			MaxHP:     100,
-			Strength:  15,
-			Inventory: starterItems,
-		},
-	}
-}
-
-func createPlayerForPvP(playerNumber int) *Player {
-	var playerName string
-	fmt.Printf("  Введите имя игрока %d: ", playerNumber)
-	fmt.Scan(&playerName)
-
-	// Даем игроку стартовые предметы
-	starterItems := []Item{
-		{Name: "Деревянный меч", Type: WeaponType, Attack: 3},
-		{Name: "Кожаный жилет", Type: ArmorType, Defence: 2},
-		{Name: "Простое зелье здоровья", Type: Consumable, PlusHP: 25},
-	}
-
-	return &Player{
-		BaseCharacter: BaseCharacter{
-			Name:      playerName,
-			HP:        100,
-			MaxHP:     100,
-			Strength:  15,
-			Inventory: starterItems,
-		},
-	}
-}
-
-func displayPrologue() {
-	fmt.Println("\n╔══════════════════════════════════════════════════╗")
-	fmt.Println("║                    ПРОЛОГ                        ║")
-	fmt.Println("╚══════════════════════════════════════════════════╝")
-	fmt.Println("\n  В мире под названием ДэйВилл жил")
-	fmt.Println("  маленький поросёнок по имени Тэд.")
-	fmt.Println("  Он был не как все - его манила жажда")
-	fmt.Println("  приключений и мечта о легендарных")
-	fmt.Println("  сокровищах мира.")
-	fmt.Println()
-	fmt.Println("  Однажды, найдя старую карту в лесу,")
-	fmt.Println("  Тэд решил: пора отправляться в путь!")
-	fmt.Println("  Но дорога к сокровищам полна опасностей")
-	fmt.Println("  и коварных врагов...")
-	fmt.Println()
-}
-
-func displayEpilogue() {
-	fmt.Println("\n╔══════════════════════════════════════════════════╗")
-	fmt.Println("║                    ЭПИЛОГ                        ║")
-	fmt.Println("╚══════════════════════════════════════════════════╝")
-	fmt.Println("\n  Пройдя через все испытания, Тэд наконец")
-	fmt.Println("  достиг Запретного Храма.")
-	fmt.Println("  Внутри его ждал не просто сундук с золотом,")
-	fmt.Println("  а нечто большее - мудрость предков.")
-	fmt.Println()
-	fmt.Println("  Оказалось, что настоящее сокровище - это")
-	fmt.Println("  путешествие, друзья, которых он приобрёл,")
-	fmt.Println("  и уроки, которые он усвоил.")
-	fmt.Println()
-	fmt.Println("  Тэд вернулся в ДэйВилл героем, и его история")
-	fmt.Println("  вдохновила многих молодых поросят на")
-	fmt.Println("  собственные приключения!")
-	fmt.Println()
-}
-
-func showInventoryMenu(player *Player) {
-	for {
-		fmt.Println("\n╔══════════════════════════════════════════════════╗")
-		fmt.Println("║                 МЕНЮ ИНВЕНТАРЯ                  ║")
-		fmt.Println("╚══════════════════════════════════════════════════╝")
-		fmt.Println("  1. Показать инвентарь")
-		fmt.Println("  2. Показать экипировку")
-		fmt.Println("  3. Надеть предмет")
-		fmt.Println("  4. Снять предмет")
-		fmt.Println("  5. Выйти в главное меню")
-		fmt.Print("  ➤ ")
-
-		var choice int
-		fmt.Scan(&choice)
-
-		switch choice {
-		case 1:
-			player.ShowInventory()
-		case 2:
-			player.ShowEquipment()
-		case 3:
-			player.Equip()
-		case 4:
-			player.TakeOff()
-		case 5:
-			return
-		default:
-			fmt.Println("\n  ⚠ Неверный выбор")
-		}
-		fmt.Println()
-	}
-}
-
-func startPvPMode() {
-	fmt.Println("\n╔══════════════════════════════════════════════════╗")
-	fmt.Println("║           РЕЖИМ PvP - ГОРЯЧИЙ СТУЛ              ║")
-	fmt.Println("╚══════════════════════════════════════════════════╝")
-	fmt.Println("\n  Два игрока будут сражаться на одном компьютере")
-	fmt.Println("  с переходом хода от одного игрока к другому.\n")
-
-	// Создаем двух игроков
-	player1 := createPlayerForPvP(1)
-	player2 := createPlayerForPvP(2)
-
-	fmt.Printf("\n  👤 Игрок 1: %s\n", player1.GetName())
-	showHealthBar(player1.GetHP(), player1.MaxHP, "")
-	fmt.Printf("\n  👤 Игрок 2: %s\n", player2.GetName())
-	showHealthBar(player2.GetHP(), player2.MaxHP, "")
-
-	// Даем игрокам возможность настроить экипировку перед боем
-	fmt.Println("\n  Настройка экипировки перед боем:")
-	fmt.Println("\n  👤 Игрок 1, настройте свою экипировку:")
-	showInventoryMenu(player1)
-
-	fmt.Println("\n  👤 Игрок 2, настройте свою экипировку:")
-	showInventoryMenu(player2)
-
-	// Начинаем бой PvP
-	battle := NewHotSeatBattle(player1, player2)
-	battle.Start()
-}
-
-func startStoryMode() {
-	displayPrologue()
-
-	player := createPlayer()
-
-	// Определяем врагов для каждого этапа путешествия с трофеями
-	enemies := []struct {
-		name     string
-		hp       int
-		strength int
-		story    string
-		loot     Item
-	}{
-		{
-			name:     "Атомный-Кролик",
-			hp:       60,
-			strength: 10,
-			story:    "В лесу Тэда внезапно остановил Атомный-Кролик! 'Живым ты отсюда не уйдешь!' - проскрипел он.",
-			loot:     generateRandomItem(),
-		},
-		{
-			name:     "Качок-Ворон",
-			hp:       80,
-			strength: 15,
-			story:    "Переходя через Туманые Горы, Тэд столкнулся с Вороном-качком, который хотел задушить поросенка своими бицепсами!",
-			loot:     generateRandomItem(),
-		},
-		{
-			name:     "Медведь по кличке Самосвал",
-			hp:       120,
-			strength: 20,
-			story:    "У входа в Запретный Храм Древних Свиней дорогу Тэду преградил грозный Медведь Самосвал - последний страж сокровищ!",
-			loot:     generateRandomItem(),
-		},
-	}
-
-	// Основной игровой цикл с сюжетными вставками
-	for i, enemyInfo := range enemies {
-		// Даем игроку возможность управлять инвентарем перед боем
-		if i > 0 {
-			fmt.Println("\n  Перед следующим боем вы можете проверить инвентарь")
-			fmt.Print("  Хотите зайти в меню инвентаря? (1-да, 2-нет): ")
-			var inventoryChoice int
-			fmt.Scan(&inventoryChoice)
-			if inventoryChoice == 1 {
-				showInventoryMenu(player)
-			}
-		}
-
-		fmt.Printf("\n╔══════════════════════════════════════════════════╗")
-		fmt.Printf("\n║            ГЛАВА %d: %-20s      ║\n", i+1, enemyInfo.name)
-		fmt.Printf("╚══════════════════════════════════════════════════╝\n")
-		fmt.Printf("\n  %s\n", enemyInfo.story)
-		fmt.Println()
-
-		enemy := &Enemy{
-			BaseCharacter: BaseCharacter{
-				Name:     enemyInfo.name,
-				HP:       enemyInfo.hp,
-				MaxHP:    enemyInfo.hp,
-				Strength: enemyInfo.strength,
-			},
-			Loot: enemyInfo.loot,
-		}
-
-		battle := NewBattle(player, enemy)
-		playerWon := battle.Start()
-
-		if !playerWon {
-			fmt.Println("\n╔══════════════════════════════════════════════════╗")
-			fmt.Println("║                  GAME OVER                       ║")
-			fmt.Println("╚══════════════════════════════════════════════════╝")
-			fmt.Println("\n  К сожалению, ваше приключение завершилось здесь...")
-			fmt.Println("  Попробуйте снова!")
-			return
-		}
-
-		// Восстанавливаем немного здоровья после боя (кроме последнего)
-		if i < len(enemies)-1 {
-			healAmount := 30
-			player.HP += healAmount
-			if player.HP > player.MaxHP {
-				player.HP = player.MaxHP
-			}
-			fmt.Println("\n················································")
-			fmt.Println("                    ОТДЫХ")
-			fmt.Println("················································")
-			fmt.Printf("\n  После боя вы нашли целебные травы\n")
-			fmt.Printf("  и восстановили %d HP.\n", healAmount)
-			showHealthBar(player.HP, player.MaxHP, "  Теперь у вас")
-			fmt.Println()
-		}
-
-		// Пауза между боями
-		if i < len(enemies)-1 {
-			fmt.Print("  Нажмите Enter, чтобы продолжить...")
-			fmt.Scanln()
-		}
-	}
-
-	// Если игрок прошёл всех врагов - показываем эпилог
-	displayEpilogue()
-
-	// Показываем финальную статистику
-	fmt.Println("\n╔══════════════════════════════════════════════════╗")
-	fmt.Println("║                 ВАШИ ТРОФЕИ                      ║")
-	fmt.Println("╚══════════════════════════════════════════════════╝")
-	player.ShowInventory()
-	player.ShowEquipment()
-}
-
-func showMainMenu() {
-	fmt.Println("\n╔══════════════════════════════════════════════════╗")
-	fmt.Println("║                  ГЛАВНОЕ МЕНЮ                    ║")
-	fmt.Println("╠══════════════════════════════════════════════════╣")
-	fmt.Println("║  1. Сюжетная игра                                ║")
-	fmt.Println("║  2. PvP (Горячий стул)                           ║")
-	fmt.Println("║  3. СЕТЕВОЙ PvP - создать сервер                 ║")
-	fmt.Println("║  4. СЕТЕВОЙ PvP - подключиться к серверу         ║")
-	fmt.Println("║  5. Выйти из игры                                ║")
-	fmt.Println("╚══════════════════════════════════════════════════╝")
-	fmt.Print("  ➤ ")
-}
-
-// ==================== ОСНОВНАЯ ФУНКЦИЯ ====================
-
-func main() {
-	rand.Seed(time.Now().UnixNano())
-
-	// Запрашиваем имя для чата
-	fmt.Print("\n  Введите ваше имя для чата: ")
-	fmt.Scan(&userName)
-
-	// Запускаем фоновый чат
-	go fetchChatMessages()
-	go displayChatMessages()
-
-	// Отправляем приветственное сообщение
-	sendChatMessage("подключился к игре!")
-
-	// Даем чату время на инициализацию
-	time.Sleep(1 * time.Second)
-
-	displayWelcomeMessage()
-
-	// Главное меню
-	for {
-		showMainMenu()
-
-		var choice int
-		fmt.Scan(&choice)
-
-		switch choice {
-		case 1:
-			startStoryMode()
-		case 2:
-			startPvPMode()
-		case 3:
-			// Сетевой PvP - сервер
-			startNetworkServer()
-		case 4:
-			// Сетевой PvP - клиент
-			startNetworkClient()
-		case 5:
-			// Отправляем сообщение о выходе
-			sendChatMessage("покинул игру")
-			chatRunning = false
-			time.Sleep(1 * time.Second)
-
-			fmt.Println("\n╔══════════════════════════════════════════════════╗")
-			fmt.Println("║                 ДО СВИДАНИЯ!                    ║")
-			fmt.Println("╚══════════════════════════════════════════════════╝")
-			fmt.Println("\n  Спасибо за игру! Возвращайтесь скорее!")
-			return
-		default:
-			fmt.Println("\n  ⚠ Неверный выбор")
-		}
-
-		fmt.Print("\n  Нажмите Enter, чтобы продолжить...")
-		fmt.Scanln()
-	}
-}
+		fmt.Println("              РЕЗУЛЬТАТЫ РА
