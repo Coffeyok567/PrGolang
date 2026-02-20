@@ -923,4 +923,273 @@ func startNetworkBattle(conn net.Conn, hostPlayer, clientPlayer *Player, isHost 
 
 		// Показываем выборы
 		fmt.Println("\n················································")
-		fmt.Println("              РЕЗУЛЬТАТЫ РА
+		fmt.Println("              РЕЗУЛЬТАТЫ РАУНДА")
+		fmt.Println("················································")
+		fmt.Printf("\n  👤 %s:\n", hostPlayer.GetName())
+		fmt.Printf("     ⚔ Атакует:   %s\n", hostPlayer.Hit())
+		fmt.Printf("     🛡 Защищает:  %s\n", hostPlayer.Block())
+		fmt.Printf("\n  👤 %s:\n", clientPlayer.GetName())
+		fmt.Printf("     ⚔ Атакует:   %s\n", clientPlayer.Hit())
+		fmt.Printf("     🛡 Защищает:  %s\n", clientPlayer.Block())
+
+		// Обрабатываем атаки
+		fmt.Println("\n················································")
+		fmt.Println("              РЕЗУЛЬТАТЫ АТАК")
+		fmt.Println("················································")
+
+		// Атака хоста
+		if hostPlayer.Hit() != clientPlayer.Block() {
+			damage := hostPlayer.GetStrength()
+			clientPlayer.TakeDamage(damage)
+			fmt.Printf("\n  ⚔ %s наносит %d урона %s!\n",
+				hostPlayer.GetName(), damage, clientPlayer.GetName())
+		} else {
+			fmt.Printf("\n  🛡 %s блокирует удар %s!\n",
+				clientPlayer.GetName(), hostPlayer.GetName())
+		}
+
+		// Атака клиента (если жив)
+		if clientPlayer.IsAlive() && clientPlayer.Hit() != hostPlayer.Block() {
+			damage := clientPlayer.GetStrength()
+			hostPlayer.TakeDamage(damage)
+			fmt.Printf("  ⚔ %s наносит %d урона %s!\n",
+				clientPlayer.GetName(), damage, hostPlayer.GetName())
+		} else if clientPlayer.IsAlive() {
+			fmt.Printf("  🛡 %s блокирует удар %s!\n",
+				hostPlayer.GetName(), clientPlayer.GetName())
+		}
+
+		// Показываем состояние
+		fmt.Println("\n················································")
+		fmt.Println("              ТЕКУЩЕЕ СОСТОЯНИЕ")
+		fmt.Println("················································")
+		fmt.Printf("\n  👤 %s:\n", hostPlayer.GetName())
+		showHealthBar(hostPlayer.GetHP(), hostPlayer.MaxHP, "")
+		fmt.Printf("\n  👤 %s:\n", clientPlayer.GetName())
+		showHealthBar(clientPlayer.GetHP(), clientPlayer.MaxHP, "")
+
+		// Проверка на окончание игры
+		if !hostPlayer.IsAlive() || !clientPlayer.IsAlive() {
+			gameOver = true
+		}
+
+		round++
+	}
+
+	// Объявляем победителя
+	fmt.Println("\n══════════════════════════════════════════════════")
+	fmt.Println("                ⚔  БОЙ ЗАВЕРШЕН  ⚔               ")
+	fmt.Println("══════════════════════════════════════════════════")
+	if hostPlayer.IsAlive() {
+		fmt.Printf("\n  🏆 ПОБЕДИТЕЛЬ: %s (хост)!\n", hostPlayer.GetName())
+		fmt.Printf("  💀 ПРОИГРАВШИЙ: %s\n", clientPlayer.GetName())
+	} else {
+		fmt.Printf("\n  🏆 ПОБЕДИТЕЛЬ: %s (клиент)!\n", clientPlayer.GetName())
+		fmt.Printf("  💀 ПРОИГРАВШИЙ: %s\n", hostPlayer.GetName())
+	}
+	fmt.Println()
+}
+
+// ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+
+// Вспомогательные функции для красивого интерфейса
+func showHealthBar(currentHP, maxHP int, name string) {
+	if name != "" {
+		fmt.Printf("  %s: ", name)
+	} else {
+		fmt.Print("     ")
+	}
+
+	barWidth := 20
+	percent := float64(currentHP) / float64(maxHP)
+	filled := int(float64(barWidth) * percent)
+	empty := barWidth - filled
+
+	bar := ""
+	for i := 0; i < filled; i++ {
+		bar += "█"
+	}
+	for i := 0; i < empty; i++ {
+		bar += "░"
+	}
+
+	fmt.Printf("[%s] %d/%d ❤\n", bar, currentHP, maxHP)
+}
+
+func getBodyPart(choice int) BodyPart {
+	switch choice {
+	case 1:
+		return Head
+	case 2:
+		return Torso
+	case 3:
+		return Legs
+	default:
+		return Torso
+	}
+}
+
+func displayWelcomeMessage() {
+	fmt.Println("\n╔══════════════════════════════════════════════════╗")
+	fmt.Println("║         PvP ЧАТ - БИТВА С ОБЩЕНИЕМ              ║")
+	fmt.Println("╠══════════════════════════════════════════════════╣")
+	fmt.Println("║     💬 Общайтесь с противником во время боя     ║")
+	fmt.Println("║     ⚔  PvP режим: Горячий стул                  ║")
+	fmt.Println("║     🌐 Сетевой PvP                               ║")
+	fmt.Println("╚══════════════════════════════════════════════════╝")
+	fmt.Println()
+}
+
+func createPlayerForPvP(playerNumber int) *Player {
+	var playerName string
+	fmt.Printf("  Введите имя игрока %d: ", playerNumber)
+	fmt.Scan(&playerName)
+
+	// Даем игроку стартовые предметы
+	starterItems := []Item{
+		{Name: "Деревянный меч", Type: WeaponType, Attack: 3},
+		{Name: "Кожаный жилет", Type: ArmorType, Defence: 2},
+		{Name: "Простое зелье здоровья", Type: Consumable, PlusHP: 25},
+	}
+
+	return &Player{
+		BaseCharacter: BaseCharacter{
+			Name:      playerName,
+			HP:        100,
+			MaxHP:     100,
+			Strength:  15,
+			Inventory: starterItems,
+		},
+	}
+}
+
+func showInventoryMenu(player *Player) {
+	for {
+		fmt.Println("\n╔══════════════════════════════════════════════════╗")
+		fmt.Println("║                 МЕНЮ ИНВЕНТАРЯ                  ║")
+		fmt.Println("╚══════════════════════════════════════════════════╝")
+		fmt.Println("  1. Показать инвентарь")
+		fmt.Println("  2. Показать экипировку")
+		fmt.Println("  3. Надеть предмет")
+		fmt.Println("  4. Снять предмет")
+		fmt.Println("  5. Начать бой")
+		fmt.Print("  ➤ ")
+
+		var choice int
+		fmt.Scan(&choice)
+
+		switch choice {
+		case 1:
+			player.ShowInventory()
+		case 2:
+			player.ShowEquipment()
+		case 3:
+			player.Equip()
+		case 4:
+			player.TakeOff()
+		case 5:
+			return
+		default:
+			fmt.Println("\n  ⚠ Неверный выбор")
+		}
+		fmt.Println()
+	}
+}
+
+func startPvPMode() {
+	fmt.Println("\n╔══════════════════════════════════════════════════╗")
+	fmt.Println("║           РЕЖИМ PvP - ГОРЯЧИЙ СТУЛ              ║")
+	fmt.Println("╚══════════════════════════════════════════════════╝")
+	fmt.Println("\n  Два игрока будут сражаться на одном компьютере")
+	fmt.Println("  💬 Во время боя можно писать в чат\n")
+
+	// Создаем двух игроков
+	player1 := createPlayerForPvP(1)
+	player2 := createPlayerForPvP(2)
+
+	fmt.Printf("\n  👤 Игрок 1: %s\n", player1.GetName())
+	showHealthBar(player1.GetHP(), player1.MaxHP, "")
+	fmt.Printf("\n  👤 Игрок 2: %s\n", player2.GetName())
+	showHealthBar(player2.GetHP(), player2.MaxHP, "")
+
+	// Даем игрокам возможность настроить экипировку перед боем
+	fmt.Println("\n  Настройка экипировки перед боем:")
+	fmt.Println("\n  👤 Игрок 1, настройте свою экипировку:")
+	showInventoryMenu(player1)
+
+	fmt.Println("\n  👤 Игрок 2, настройте свою экипировку:")
+	showInventoryMenu(player2)
+
+	// Начинаем бой PvP
+	battle := NewHotSeatBattle(player1, player2)
+	battle.Start()
+}
+
+func showMainMenu() {
+	fmt.Println("\n╔══════════════════════════════════════════════════╗")
+	fmt.Println("║                  ГЛАВНОЕ МЕНЮ                    ║")
+	fmt.Println("╠══════════════════════════════════════════════════╣")
+	fmt.Println("║  1. PvP (Горячий стул) - на одном компьютере    ║")
+	fmt.Println("║  2. СЕТЕВОЙ PvP - создать сервер                 ║")
+	fmt.Println("║  3. СЕТЕВОЙ PvP - подключиться к серверу         ║")
+	fmt.Println("║  4. Выйти из игры                                ║")
+	fmt.Println("╚══════════════════════════════════════════════════╝")
+	fmt.Print("  ➤ ")
+}
+
+// ==================== ОСНОВНАЯ ФУНКЦИЯ ====================
+
+func main() {
+	rand.Seed(time.Now().UnixNano())
+
+	// Запрашиваем имя для чата
+	fmt.Print("\n  Введите ваше имя для чата: ")
+	fmt.Scan(&userName)
+
+	// Запускаем фоновый чат
+	go fetchChatMessages()
+	go displayChatMessages()
+
+	// Отправляем приветственное сообщение
+	sendChatMessage("подключился к игре!")
+
+	// Даем чату время на инициализацию
+	time.Sleep(1 * time.Second)
+
+	displayWelcomeMessage()
+
+	// Главное меню
+	for {
+		showMainMenu()
+
+		var choice int
+		fmt.Scan(&choice)
+
+		switch choice {
+		case 1:
+			startPvPMode()
+		case 2:
+			// Сетевой PvP - сервер
+			startNetworkServer()
+		case 3:
+			// Сетевой PvP - клиент
+			startNetworkClient()
+		case 4:
+			// Отправляем сообщение о выходе
+			sendChatMessage("покинул игру")
+			chatRunning = false
+			time.Sleep(1 * time.Second)
+
+			fmt.Println("\n╔══════════════════════════════════════════════════╗")
+			fmt.Println("║                 ДО СВИДАНИЯ!                    ║")
+			fmt.Println("╚══════════════════════════════════════════════════╝")
+			fmt.Println("\n  Спасибо за игру! Возвращайтесь скорее!")
+			return
+		default:
+			fmt.Println("\n  ⚠ Неверный выбор")
+		}
+
+		fmt.Print("\n  Нажмите Enter, чтобы продолжить...")
+		fmt.Scanln()
+	}
+}
