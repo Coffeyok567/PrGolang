@@ -1,223 +1,240 @@
 package main
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
-	"html/template"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
-	"time"
 )
 
-// ... (все предыдущие определения структур и переменных остаются без изменений) ...
-
-// ============ НОВАЯ СТРУКТУРА ДЛЯ ОТВЕТА КЛИЕНТУ ============
-type ClientResponse struct {
-	ChatHistory []string `json:"chat_history"`
-	GameState   GameState `json:"game_state"`
+// ---------- Игровая логика ----------
+type Player struct {
+	Name    string
+	Attack  string
+	Defense string
+	HP      int
 }
 
-type GameState struct {
-	Phase        string            `json:"phase"`
-	Players      map[string]PlayerInfo `json:"players"`
-	PlayersCount int               `json:"players_count"`
-	Result       string            `json:"result"`
+var (
+	players = make(map[string]*Player)
+	phase   = "WAIT" // WAIT, ATTACK, DEFENSE, RESULT
+	result  string
+	gameMu  sync.Mutex
+)
+
+var damageByPart = map[string]int{
+	"head": 30,
+	"body": 20,
+	"legs": 10,
 }
 
-type PlayerInfo struct {
-	Name string `json:"name"`
-	HP   int    `json:"hp"`
-}
+// ---------- Чат ----------
+var (
+	chatHistory []string
+	chatMu      sync.Mutex
+)
 
-// ============ ОСНОВНОЙ ОБРАБОТЧИК ============
-func mainHandler(w http.ResponseWriter, r *http.Request) {
-	// Проверяем User-Agent чтобы понять, кто обращается
-	userAgent := r.Header.Get("User-Agent")
-	isBrowser := strings.Contains(userAgent, "Mozilla") || 
-	             strings.Contains(userAgent, "Chrome") || 
-	             strings.Contains(userAgent, "Safari")
-
-	if r.Method == http.MethodPost {
-		body, _ := io.ReadAll(r.Body)
-		msg := string(body)
-		
-		// Обработка игровых и чат сообщений
-		if strings.HasPrefix(msg, "register=") || 
-		   strings.HasPrefix(msg, "attack=") || 
-		   strings.HasPrefix(msg, "defense=") {
-			handleGameMessage(w, msg, isBrowser)
-		} else {
-			handleChatMessage(w, msg, getClientIP(r), isBrowser)
-		}
-	} else {
-		if isBrowser {
-			// Браузеру отдаем HTML страницу
-			showGamePage(w)
-		} else {
-			// Клиенту отдаем JSON с данными
-			sendClientData(w)
-		}
-	}
-}
-
-// ============ НОВЫЙ ОБРАБОТЧИК ДЛЯ КЛИЕНТА ============
-func sendClientData(w http.ResponseWriter) {
-	history_mutex.Lock()
-	chatCopy := make([]string, len(chat_history))
-	copy(chatCopy, chat_history)
-	history_mutex.Unlock()
-	
-	game_mutex.Lock()
-	playersInfo := make(map[string]PlayerInfo)
-	for name, p := range players {
-		playersInfo[name] = PlayerInfo{
-			Name: p.Name,
-			HP:   p.HP,
-		}
-	}
-	playersCount := len(players)
-	currentPhase := phase
-	currentResult := result
-	game_mutex.Unlock()
-	
-	response := ClientResponse{
-		ChatHistory: chatCopy,
-		GameState: GameState{
-			Phase:        currentPhase,
-			Players:      playersInfo,
-			PlayersCount: playersCount,
-			Result:       currentResult,
-		},
-	}
-	
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-// ============ ИСПРАВЛЕННЫЙ ОБРАБОТЧИК ИГРОВЫХ СООБЩЕНИЙ ============
-func handleGameMessage(w http.ResponseWriter, msg string, isBrowser bool) {
-	game_mutex.Lock()
-	defer game_mutex.Unlock()
-
-	// РЕГИСТРАЦИЯ
-	if strings.HasPrefix(msg, "register=") {
-		name := strings.Split(msg, "=")[1]
-		
-		if len(players) >= 2 {
-			if isBrowser {
-				fmt.Fprint(w, "SERVER_FULL")
-			} else {
-				json.NewEncoder(w).Encode(map[string]string{"status": "SERVER_FULL"})
+// ---------- Запуск сервера ----------
+func main() {
+	// Горутина для ввода сообщений от администратора сервера
+	go func() {
+		var input string
+		for {
+			fmt.Scanln(&input)
+			if input == "" {
+				continue
 			}
+			fullMsg := "Сервер: " + input
+			chatMu.Lock()
+			chatHistory = append(chatHistory, fullMsg)
+			chatMu.Unlock()
+			fmt.Println("Вы:", input)
+		}
+	}()
+
+	// Основной обработчик (корневой путь) — для чата и игровых команд
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			msg := string(body)
+
+			// Проверяем, является ли сообщение игровой командой
+			if strings.HasPrefix(msg, "register=") ||
+				strings.HasPrefix(msg, "attack=") ||
+				strings.HasPrefix(msg, "defense=") {
+				handleGameCommand(w, msg)
+				return
+			}
+
+			// Обычное сообщение чата
+			chatMu.Lock()
+			chatHistory = append(chatHistory, msg)
+			chatMu.Unlock()
+			fmt.Println("Клиент:", msg)
+			fmt.Fprint(w, "получено")
 			return
 		}
-		
-		players[name] = &Player{
-			Name: name,
-			HP:   100,
+
+		// GET-запрос — возвращаем всю историю чата
+		chatMu.Lock()
+		defer chatMu.Unlock()
+		for _, line := range chatHistory {
+			fmt.Fprintln(w, line)
 		}
-		
-		addToChat("⚔️ Игрок " + name + " присоединился к битве!")
-		
+	})
+
+	// Отдельный эндпоинт для получения состояния игры
+	http.HandleFunc("/game", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "только GET", http.StatusMethodNotAllowed)
+			return
+		}
+		gameMu.Lock()
+		defer gameMu.Unlock()
+
+		switch phase {
+		case "WAIT":
+			fmt.Fprint(w, "WAIT")
+		case "ATTACK":
+			fmt.Fprint(w, "ATTACK")
+		case "DEFENSE":
+			fmt.Fprint(w, "DEFENSE")
+		case "RESULT":
+			fmt.Fprint(w, result)
+			resetRound() // после отправки результата сбрасываем раунд
+		default:
+			fmt.Fprint(w, "UNKNOWN")
+		}
+	})
+
+	fmt.Println("Сервер запущен на :8080")
+	http.ListenAndServe(":8080", nil)
+}
+
+// ---------- Обработка игровых команд ----------
+func handleGameCommand(w http.ResponseWriter, cmd string) {
+	gameMu.Lock()
+	defer gameMu.Unlock()
+
+	switch {
+	case strings.HasPrefix(cmd, "register="):
+		name := strings.Split(cmd, "=")[1]
+		if len(players) >= 2 {
+			fmt.Fprint(w, "SERVER_FULL")
+			return
+		}
+		players[name] = &Player{Name: name, HP: 100}
 		if len(players) == 2 {
 			phase = "ATTACK"
-			addToChat("⚔️ БИТВА НАЧИНАЕТСЯ! Игроки выбирают атаку...")
 		}
-		
-		if isBrowser {
-			fmt.Fprint(w, "REGISTERED")
-		} else {
-			json.NewEncoder(w).Encode(map[string]string{"status": "REGISTERED"})
-		}
-		return
-	}
+		fmt.Fprint(w, "REGISTERED")
 
-	// АТАКА
-	if strings.HasPrefix(msg, "attack=") {
+	case strings.HasPrefix(cmd, "attack="):
 		if phase != "ATTACK" {
-			if isBrowser {
-				fmt.Fprint(w, "WAIT")
-			} else {
-				json.NewEncoder(w).Encode(map[string]string{"status": "WAIT"})
-			}
+			fmt.Fprint(w, "WAIT")
 			return
 		}
-		
-		parts := strings.Split(strings.Split(msg, "=")[1], ":")
-		if len(parts) == 2 {
-			players[parts[0]].Attack = parts[1]
-			addToChat("⚔️ " + parts[0] + " готовится к атаке...")
-			
-			if allAttacks() {
-				phase = "DEFENSE"
-				addToChat("🛡️ ФАЗА ЗАЩИТЫ! Игроки выбирают защиту...")
-			}
+		parts := strings.Split(strings.Split(cmd, "=")[1], ":")
+		if len(parts) != 2 {
+			fmt.Fprint(w, "BAD_FORMAT")
+			return
 		}
-		
-		if isBrowser {
-			fmt.Fprint(w, "OK")
-		} else {
-			json.NewEncoder(w).Encode(map[string]string{"status": "OK"})
+		name, part := parts[0], parts[1]
+		if _, ok := players[name]; !ok {
+			fmt.Fprint(w, "NOT_REGISTERED")
+			return
 		}
-		return
-	}
+		players[name].Attack = part
+		if allAttacks() {
+			phase = "DEFENSE"
+		}
+		fmt.Fprint(w, "OK")
 
-	// ЗАЩИТА
-	if strings.HasPrefix(msg, "defense=") {
+	case strings.HasPrefix(cmd, "defense="):
 		if phase != "DEFENSE" {
-			if isBrowser {
-				fmt.Fprint(w, "WAIT")
-			} else {
-				json.NewEncoder(w).Encode(map[string]string{"status": "WAIT"})
-			}
+			fmt.Fprint(w, "WAIT")
 			return
 		}
-		
-		parts := strings.Split(strings.Split(msg, "=")[1], ":")
-		if len(parts) == 2 {
-			players[parts[0]].Defense = parts[1]
-			addToChat("🛡️ " + parts[0] + " принимает защитную стойку...")
-			
-			if allDefenses() {
-				calcResult()
-				phase = "RESULT"
-				addToChat(result)
-				
-				// Автоматический переход к следующему раунду через 5 секунд
-				go func() {
-					time.Sleep(5 * time.Second)
-					game_mutex.Lock()
-					if phase == "RESULT" {
-						resetRound()
-					}
-					game_mutex.Unlock()
-				}()
-			}
+		parts := strings.Split(strings.Split(cmd, "=")[1], ":")
+		if len(parts) != 2 {
+			fmt.Fprint(w, "BAD_FORMAT")
+			return
 		}
-		
-		if isBrowser {
-			fmt.Fprint(w, "OK")
+		name, part := parts[0], parts[1]
+		if _, ok := players[name]; !ok {
+			fmt.Fprint(w, "NOT_REGISTERED")
+			return
+		}
+		players[name].Defense = part
+		if allDefenses() {
+			calcResult()
+			phase = "RESULT"
+		}
+		fmt.Fprint(w, "OK")
+	}
+}
+
+// ---------- Вспомогательные функции игры ----------
+func allAttacks() bool {
+	if len(players) < 2 {
+		return false
+	}
+	for _, p := range players {
+		if p.Attack == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func allDefenses() bool {
+	for _, p := range players {
+		if p.Defense == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func calcResult() {
+	var p1, p2 *Player
+	for _, p := range players {
+		if p1 == nil {
+			p1 = p
 		} else {
-			json.NewEncoder(w).Encode(map[string]string{"status": "OK"})
+			p2 = p
 		}
-		return
 	}
-}
 
-// ============ ИСПРАВЛЕННЫЙ ОБРАБОТЧИК ЧАТА ============
-func handleChatMessage(w http.ResponseWriter, msg string, ip string, isBrowser bool) {
-	addToChat(msg)
-	server_output <- "💬 " + msg
-	
-	if isBrowser {
-		fmt.Fprint(w, "получено")
+	res := "=== РЕЗУЛЬТАТ РАУНДА ===\n"
+
+	// Атака p1
+	if p1.Attack != p2.Defense {
+		dmg := damageByPart[p1.Attack]
+		p2.HP -= dmg
+		res += fmt.Sprintf("%s ударил %s в %s (-%d HP)\n", p1.Name, p2.Name, p1.Attack, dmg)
 	} else {
-		json.NewEncoder(w).Encode(map[string]string{"status": "received"})
+		res += fmt.Sprintf("%s защитился от удара %s\n", p2.Name, p1.Name)
 	}
+
+	// Атака p2
+	if p2.Attack != p1.Defense {
+		dmg := damageByPart[p2.Attack]
+		p1.HP -= dmg
+		res += fmt.Sprintf("%s ударил %s в %s (-%d HP)\n", p2.Name, p1.Name, p2.Attack, dmg)
+	} else {
+		res += fmt.Sprintf("%s защитился от удара %s\n", p1.Name, p2.Name)
+	}
+
+	res += fmt.Sprintf("\nHP:\n%s = %d\n%s = %d\n", p1.Name, p1.HP, p2.Name, p2.HP)
+	result = res
 }
 
-// ... (все остальные функции остаются без изменений) ...
+func resetRound() {
+	for _, p := range players {
+		p.Attack = ""
+		p.Defense = ""
+	}
+	phase = "ATTACK"
+}
