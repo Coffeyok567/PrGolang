@@ -28,7 +28,7 @@ type PlayerInfo struct {
 var display_chan = make(chan string, 10)
 
 func main() {
-	// Запрашиваем URL сервера
+	// Запрашиваем URL сервера   https://sturdy-sniffle-x5vw46wq7544hxr6-8080.app.github.dev/
 	fmt.Print("Введите URL сервера (например: https://ваш-код-8080.app.github.dev): ")
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()
