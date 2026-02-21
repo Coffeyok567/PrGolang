@@ -17,7 +17,7 @@ var (
 )
 
 func main() {
-	// Запрашиваем адрес сервера
+	// Запрашиваем адрес сервера      https://ubiquitous-dollop-4jw7r4795qj53jjgp-8080.app.github.dev/
 	fmt.Print("Введите адрес сервера (например, http://localhost:8080): ")
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()
@@ -189,3 +189,4 @@ func pvpMode(scanner *bufio.Scanner) {
 		}
 	}
 }
+
