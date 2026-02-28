@@ -19,7 +19,7 @@ var (
 
 func main() {
 	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Print("Адрес сервера (http://localhost:8080): ")
+	fmt.Print("Адрес сервера (https://turbo-orbit-4jw7r4795jxjf5qrj-8080.app.github.dev/): ")
 	scanner.Scan()
 	serverAddr = scanner.Text()
 
@@ -82,3 +82,4 @@ func main() {
 		}
 	}
 }
+
